@@ -76,7 +76,7 @@ export function createMcpServer(store = new SessionStore()): Server {
         {
           name: "zen_poll_feedback",
           description:
-            "Long-poll until human reviewer submits annotations, suggestions, or question selections on the document.",
+            "Long-poll until human reviewer submits annotations, suggestions, question selections, or approves the plan. IMPORTANT: If approved is false or status is 'feedback', the agent MUST NOT start implementing features; it must continue updating the spec or providing information.",
           inputSchema: {
             type: "object",
             properties: {
@@ -87,6 +87,25 @@ export function createMcpServer(store = new SessionStore()): Server {
               agentReply: {
                 type: "string",
                 description: "Optional message or progress note to send before polling.",
+              },
+            },
+            required: ["filePath"],
+          },
+        },
+        {
+          name: "zen_approve_plan",
+          description:
+            "Approve a plan/artifact and authorize the agent to proceed with implementation.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              filePath: {
+                type: "string",
+                description: "Path to the reviewed document.",
+              },
+              notes: {
+                type: "string",
+                description: "Optional approval note.",
               },
             },
             required: ["filePath"],
@@ -213,6 +232,7 @@ export function createMcpServer(store = new SessionStore()): Server {
                 url: sessionUrl,
                 file: canonical,
                 docType: session.docType,
+                approved: session.approved,
               },
               null,
               2,
@@ -240,10 +260,44 @@ export function createMcpServer(store = new SessionStore()): Server {
           content: [
             {
               type: "text",
+              text: JSON.stringify(
+                session.approved
+                  ? {
+                      status: "approved",
+                      file: session.filePath,
+                      approved: true,
+                      approvedAt: session.approvedAt,
+                      prompts,
+                      message: "Plan has been explicitly approved by the reviewer.",
+                      sessionEnded: session.ended,
+                      endedBy: session.endedBy,
+                    }
+                  : {
+                      status: "feedback",
+                      file: session.filePath,
+                      prompts,
+                      approved: false,
+                      sessionEnded: session.ended,
+                      endedBy: session.endedBy,
+                    },
+              ),
+            },
+          ],
+        };
+      }
+
+      if (session.approved) {
+        return {
+          content: [
+            {
+              type: "text",
               text: JSON.stringify({
-                status: "feedback",
+                status: "approved",
                 file: session.filePath,
-                prompts,
+                approved: true,
+                approvedAt: session.approvedAt,
+                message:
+                  "Plan has been explicitly approved by the reviewer. You may now proceed with implementation.",
                 sessionEnded: session.ended,
                 endedBy: session.endedBy,
               }),
@@ -260,6 +314,7 @@ export function createMcpServer(store = new SessionStore()): Server {
               text: JSON.stringify({
                 status: "ended",
                 file: session.filePath,
+                approved: session.approved,
                 endedBy: session.endedBy,
                 message: `Session was concluded by ${session.endedBy || "user"}.`,
               }),
@@ -277,6 +332,30 @@ export function createMcpServer(store = new SessionStore()): Server {
           {
             type: "text",
             text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    }
+
+    if (name === "zen_approve_plan") {
+      const filePath = String(args?.filePath || "");
+      const canonical = fs.existsSync(filePath)
+        ? fs.realpathSync(filePath)
+        : path.resolve(filePath);
+      const session = store.getOrCreateSession(canonical);
+      const notes = args?.notes ? String(args.notes) : undefined;
+      store.approveSession(session.key, notes);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              approved: true,
+              approvedAt: session.approvedAt,
+              file: session.filePath,
+            }),
           },
         ],
       };

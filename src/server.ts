@@ -225,8 +225,13 @@ export class ZenServer {
 
       this.watchFile(key, session.canonicalPath);
 
-      // Send initial presence, progress, and diffs
+      // Send initial presence, progress, diffs, and approval state
       res.write(`event: presence\ndata: ${JSON.stringify({ presence: session.presence })}\n\n`);
+      if (session.approved) {
+        res.write(
+          `event: approved\ndata: ${JSON.stringify({ approved: true, approvedAt: session.approvedAt })}\n\n`,
+        );
+      }
       if (session.activeProgress) {
         res.write(`event: progress\ndata: ${JSON.stringify(session.activeProgress)}\n\n`);
       }
@@ -250,6 +255,9 @@ export class ZenServer {
       const onChat = (msg: any) => {
         res.write(`event: chat\ndata: ${JSON.stringify(msg)}\n\n`);
       };
+      const onApproved = (approvedData: any) => {
+        res.write(`event: approved\ndata: ${JSON.stringify(approvedData)}\n\n`);
+      };
       const onEnded = (ended: any) => {
         res.write(`event: ended\ndata: ${JSON.stringify(ended)}\n\n`);
       };
@@ -258,6 +266,7 @@ export class ZenServer {
       this.store.on(`progress:${key}`, onProgress);
       this.store.on(`diff:${key}`, onDiff);
       this.store.on(`chat:${key}`, onChat);
+      this.store.on(`approved:${key}`, onApproved);
       this.store.on(`ended:${key}`, onEnded);
 
       req.on("close", () => {
@@ -266,6 +275,7 @@ export class ZenServer {
         this.store.off(`progress:${key}`, onProgress);
         this.store.off(`diff:${key}`, onDiff);
         this.store.off(`chat:${key}`, onChat);
+        this.store.off(`approved:${key}`, onApproved);
         this.store.off(`ended:${key}`, onEnded);
       });
       return;
@@ -318,6 +328,8 @@ export class ZenServer {
           lastModified: stat.mtimeMs,
           ended: session.ended,
           endedBy: session.endedBy,
+          approved: session.approved || false,
+          approvedAt: session.approvedAt,
           presence: session.presence,
           activeProgress: session.activeProgress,
           chatHistory: session.chatHistory,
@@ -543,6 +555,34 @@ export class ZenServer {
 
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: true }));
+      return;
+    }
+
+    // Approve session endpoint: /api/:key/approve
+    const approveMatch = pathname.match(/^\/api\/([a-zA-Z0-9]+)\/approve$/);
+    if (approveMatch && req.method === "POST") {
+      const key = approveMatch[1];
+      const session = this.store.getSession(key);
+
+      if (!session) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Session not found" }));
+        return;
+      }
+
+      const body = await readJsonBody(req);
+      const notes = body?.notes || body?.message || "";
+      this.store.approveSession(key, notes);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          success: true,
+          approved: true,
+          approvedAt: session.approvedAt,
+          file: session.filePath,
+        }),
+      );
       return;
     }
 

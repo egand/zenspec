@@ -75,6 +75,8 @@ export interface SessionState {
   workspaceFiles?: string[];
   ended: boolean;
   endedBy?: "user" | "agent";
+  approved: boolean;
+  approvedAt?: string;
   presence: AgentPresenceState;
   activeProgress?: AgentProgressUpdate;
   queuedPrompts: PromptItem[];
@@ -89,6 +91,18 @@ export interface PollFeedbackResponse {
   status: "feedback";
   file: string;
   prompts: PromptItem[];
+  approved?: boolean;
+  sessionEnded?: boolean;
+  endedBy?: "user" | "agent";
+}
+
+export interface PollApprovedResponse {
+  status: "approved";
+  file: string;
+  approved: true;
+  approvedAt?: string;
+  prompts?: PromptItem[];
+  message: string;
   sessionEnded?: boolean;
   endedBy?: "user" | "agent";
 }
@@ -96,6 +110,7 @@ export interface PollFeedbackResponse {
 export interface PollEndedResponse {
   status: "ended";
   file: string;
+  approved?: boolean;
   endedBy?: "user" | "agent";
   message: string;
 }
@@ -106,4 +121,5 @@ export interface PollSupersededResponse {
   message: string;
 }
 
-export type PollResponse = PollFeedbackResponse | PollEndedResponse | PollSupersededResponse;
+export type PollResponse =
+  PollFeedbackResponse | PollApprovedResponse | PollEndedResponse | PollSupersededResponse;

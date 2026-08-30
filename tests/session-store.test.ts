@@ -91,6 +91,24 @@ describe("SessionStore & Long-Polling Coordinator", () => {
     }
   });
 
+  it("approves session and resolves poll waiter with status: approved", async () => {
+    const session = store.getOrCreateSession(`/fake/path/approve-test-${Date.now()}.md`);
+    expect(session.approved).toBe(false);
+
+    let pollResult: PollResponse | null = null;
+    store.registerPollWaiter(session.key, (res) => {
+      pollResult = res;
+    });
+
+    store.approveSession(session.key, "Looks good to implement");
+
+    expect(session.approved).toBe(true);
+    expect(session.approvedAt).toBeDefined();
+    expect(pollResult).not.toBeNull();
+    expect((pollResult as any)?.status).toBe("approved");
+    expect((pollResult as any)?.approved).toBe(true);
+  });
+
   it("supersedes previous poll waiters when a new poll waiter registers", () => {
     const session = store.getOrCreateSession("/fake/path/supersede.md");
 

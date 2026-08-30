@@ -81,6 +81,8 @@ describe("ADR Generation & Resolution", () => {
       presence: "waiting",
       lastModified: Date.now(),
       ended: true,
+      approved: true,
+      approvedAt: "2026-08-30T10:05:00.000Z",
     };
 
     const adr = generateADRDocument({ session, docContent: md, adrNumber: 2 });
@@ -106,6 +108,7 @@ describe("ADR Generation & Resolution", () => {
       presence: "waiting",
       lastModified: Date.now(),
       ended: false,
+      approved: false,
     };
 
     const adr = generateADRDocument({ session, docContent: md });

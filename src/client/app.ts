@@ -51,6 +51,21 @@ function extractSessionKey(): string {
   return params.get("key") || "";
 }
 
+function updateApprovalState(isApproved: boolean, approvedAt?: string) {
+  const approveBtn = document.getElementById("zen-approve-btn") as HTMLButtonElement | null;
+  if (!approveBtn) return;
+  if (isApproved) {
+    approveBtn.classList.add("zen-btn-approved");
+    approveBtn.innerHTML = "✓ Plan Approved";
+    const dateStr = approvedAt ? new Date(approvedAt).toLocaleTimeString() : "recently";
+    approveBtn.title = `Plan approved at ${dateStr}. Agent is authorized to implement.`;
+  } else {
+    approveBtn.classList.remove("zen-btn-approved");
+    approveBtn.innerHTML = "✅ Approve Plan";
+    approveBtn.title = "Approve Plan & Authorize Implementation (a)";
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Document Loading and Rendering
 // -----------------------------------------------------------------------------
@@ -68,11 +83,13 @@ async function loadDocument(targetRelFile?: string) {
     currentFilePath = data.file;
 
     // Update Header
-
     const fileNameEl = document.getElementById("zen-file-name");
     const docTypeEl = document.getElementById("zen-doc-type");
     if (fileNameEl) fileNameEl.textContent = data.file;
     if (docTypeEl) docTypeEl.textContent = data.docType.toUpperCase();
+
+    // Update Approval State
+    updateApprovalState(Boolean(data.approved), data.approvedAt);
 
     // Render Canvas
     const container = document.getElementById("zen-document-view");
@@ -629,6 +646,16 @@ function setupEventStream() {
     }
   });
 
+  es.addEventListener("approved", (e: MessageEvent) => {
+    try {
+      const data = JSON.parse(e.data);
+      updateApprovalState(true, data.approvedAt);
+      showToast("✅ Plan approved! Agent is authorized to proceed with implementation.");
+    } catch (err) {
+      console.debug("SSE approved parse error", err);
+    }
+  });
+
   es.addEventListener("ended", () => {
     showToast("🛑 Session ended.");
     const endBtn = document.getElementById("zen-end-btn");
@@ -1018,6 +1045,23 @@ function setupUiListeners() {
     showToast(`Diff highlights: ${diffsVisible ? "Enabled" : "Disabled"}`);
   });
 
+  // Approve Plan Button
+  document.getElementById("zen-approve-btn")?.addEventListener("click", async () => {
+    try {
+      const res = await fetch(`/api/${sessionKey}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: "Explicitly approved from ZenSpec UI" }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      updateApprovalState(true, data.approvedAt);
+      showToast("✅ Plan approved! Agent is authorized to proceed with implementation.");
+    } catch (e: any) {
+      showToast(`Error approving plan: ${e.message}`);
+    }
+  });
+
   // End Session Button
   document.getElementById("zen-end-btn")?.addEventListener("click", async () => {
     if (!confirm("Are you sure you want to end this review session?")) return;
@@ -1234,7 +1278,10 @@ function setupUiListeners() {
       return;
     }
 
-    if (e.key === "c" || e.key === "C") {
+    if (e.key === "a" || e.key === "A") {
+      e.preventDefault();
+      document.getElementById("zen-approve-btn")?.click();
+    } else if (e.key === "c" || e.key === "C") {
       if (activeHighlight) {
         e.preventDefault();
         openAnnotationModal(activeHighlight, "comment");

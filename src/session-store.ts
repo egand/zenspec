@@ -209,6 +209,7 @@ export class SessionStore extends EventEmitter {
         token: options.token || crypto.randomBytes(8).toString("hex"),
         workspaceRoot,
         ended: false,
+        approved: false,
         presence: "waiting",
         queuedPrompts: [],
         chatHistory: [],
@@ -224,6 +225,7 @@ export class SessionStore extends EventEmitter {
       session.canonicalPath = canonicalPath;
       session.docType = docType;
       session.workspaceRoot = workspaceRoot;
+      if (session.approved === undefined) session.approved = false;
       if (options.token) session.token = options.token;
       if (!session.currentContent && initialContent) {
         session.currentContent = initialContent;
@@ -314,6 +316,21 @@ export class SessionStore extends EventEmitter {
     return msg;
   }
 
+  public approveSession(key: string, notes?: string): void {
+    const session = this.sessions.get(key);
+    if (!session) return;
+
+    session.approved = true;
+    session.approvedAt = new Date().toISOString();
+    if (notes) {
+      this.addChatMessage(key, "user", `[Plan Approved] ${notes}`);
+    }
+    this.persistState();
+
+    this.emit(`approved:${key}`, { approved: true, approvedAt: session.approvedAt });
+    this.flushPollWaiters(key);
+  }
+
   public endSession(key: string, endedBy: "user" | "agent"): void {
     const session = this.sessions.get(key);
     if (!session) return;
@@ -370,10 +387,39 @@ export class SessionStore extends EventEmitter {
 
     if (session.queuedPrompts.length > 0) {
       const prompts = this.takeQueuedPrompts(key);
+      const response: PollResponse = session.approved
+        ? {
+            status: "approved",
+            file: session.filePath,
+            approved: true,
+            approvedAt: session.approvedAt,
+            prompts,
+            message: "Plan has been explicitly approved by the reviewer.",
+            sessionEnded: session.ended,
+            endedBy: session.endedBy,
+          }
+        : {
+            status: "feedback",
+            file: session.filePath,
+            prompts,
+            approved: false,
+            sessionEnded: session.ended,
+            endedBy: session.endedBy,
+          };
+      const callbacks = [...waiters];
+      this.pollWaiters.set(key, []);
+      for (const cb of callbacks) cb(response);
+      return;
+    }
+
+    if (session.approved) {
       const response: PollResponse = {
-        status: "feedback",
+        status: "approved",
         file: session.filePath,
-        prompts,
+        approved: true,
+        approvedAt: session.approvedAt,
+        message:
+          "Plan has been explicitly approved by the reviewer. You may now proceed with implementation.",
         sessionEnded: session.ended,
         endedBy: session.endedBy,
       };
@@ -387,6 +433,7 @@ export class SessionStore extends EventEmitter {
       const response: PollResponse = {
         status: "ended",
         file: session.filePath,
+        approved: session.approved,
         endedBy: session.endedBy,
         message: `Session was concluded by ${session.endedBy || "user"}.`,
       };

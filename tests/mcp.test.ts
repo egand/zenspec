@@ -33,18 +33,19 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
     if (fs.existsSync(testFile)) fs.unlinkSync(testFile);
   });
 
-  it("lists all 7 available zen tools with descriptions and schemas", async () => {
+  it("lists all 8 available zen tools with descriptions and schemas", async () => {
     const res = await client.listTools();
     const names = res.tools.map((t) => t.name);
 
     expect(names).toContain("zen_open_review");
     expect(names).toContain("zen_poll_feedback");
+    expect(names).toContain("zen_approve_plan");
     expect(names).toContain("zen_reply");
     expect(names).toContain("zen_progress");
     expect(names).toContain("zen_end_session");
     expect(names).toContain("zen_get_status");
     expect(names).toContain("zen_export_adr");
-    expect(names.length).toBe(7);
+    expect(names.length).toBe(8);
   });
 
   it("executes zen_get_status tool", async () => {
@@ -155,6 +156,21 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
 
     const session = store.getSessionByFile(testFile);
     expect(session?.ended).toBe(true);
+  });
+
+  it("executes zen_approve_plan and sets session approval state", async () => {
+    const result: any = await client.callTool({
+      name: "zen_approve_plan",
+      arguments: { filePath: testFile, notes: "Approved for execution" },
+    });
+
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.approved).toBe(true);
+
+    const session = store.getSessionByFile(testFile);
+    expect(session?.approved).toBe(true);
+    expect(session?.approvedAt).toBeDefined();
   });
 
   it("throws error for non-existent file on tools requiring valid path", async () => {

@@ -127,9 +127,15 @@ export function generateADRDocument(options: {
     }
   }
 
+  const statusText = session.approved
+    ? `Accepted (Approved${session.approvedAt ? ` on ${session.approvedAt.slice(0, 10)}` : ""})`
+    : session.ended
+      ? "Concluded (Pending Approval)"
+      : "Draft / In Review";
+
   return `# ADR-${numStr}: ${docTitle}
 
-* **Status**: Accepted
+* **Status**: ${statusText}
 * **Date**: ${dateStr}
 * **Authors**: ${author}
 * **Source Document**: \`${session.filePath}\`

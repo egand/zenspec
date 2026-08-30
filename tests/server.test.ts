@@ -111,6 +111,18 @@ describe("ZenServer HTTP & API Endpoints", () => {
     expect(data.adr).toContain("## Considered Options & Decisions");
   });
 
+  it("approves plan via POST /api/:key/approve", async () => {
+    const approveRes: any = await postJson(`http://127.0.0.1:${port}/api/${testKey}/approve`, {
+      notes: "Reviewed and approved",
+    });
+    expect(approveRes.success).toBe(true);
+    expect(approveRes.approved).toBe(true);
+
+    const doc: any = await fetchJson(`http://127.0.0.1:${port}/api/${testKey}/document`);
+    expect(doc.approved).toBe(true);
+    expect(doc.approvedAt).toBeDefined();
+  });
+
   it("marks session ended via POST /api/:key/end", async () => {
     const endRes: any = await postJson(`http://127.0.0.1:${port}/api/${testKey}/end`, {
       endedBy: "agent",

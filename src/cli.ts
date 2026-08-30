@@ -210,6 +210,38 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
+  // zenspec approve <file> [--notes "..."]
+  // ---------------------------------------------------------------------------
+  if (command === "approve") {
+    const file = args[1];
+    if (!file) {
+      console.error(
+        pc.red(
+          "Error: Please specify a file to approve. Example: zenspec approve docs/plans/spec.md",
+        ),
+      );
+      process.exit(1);
+    }
+
+    const notesIdx = args.indexOf("--notes");
+    const notes = notesIdx !== -1 ? args[notesIdx + 1] : undefined;
+
+    const canonicalPath = fs.existsSync(file) ? fs.realpathSync(file) : path.resolve(file);
+    const key = sessionKey(canonicalPath);
+
+    const statusCode = await postToDaemon(`/api/${key}/approve`, { notes });
+    if (statusCode === 200) {
+      console.log(
+        pc.green(`✓ Plan for ${pc.bold(file)} approved! Agent is authorized to proceed.`),
+      );
+    } else {
+      console.error(pc.red(`Failed to approve plan (status code ${statusCode}).`));
+      process.exit(1);
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
   // zenspec reply <file> --message "..."
   // ---------------------------------------------------------------------------
   if (command === "reply") {
@@ -407,6 +439,7 @@ ${pc.bold(pc.cyan("ZenSpec"))} - Minimalist, token-efficient Agent Experience In
 ${pc.bold("USAGE:")}
   zenspec <file|dir>                   Open or resume review session in browser
   zenspec poll <file>                  Wait for human feedback via long-polling
+  zenspec approve <file> [--notes ".."] Approve plan & authorize agent to proceed
   zenspec reply <file> -m "..."        Send progress message to browser conversation
   zenspec progress <file> --step "..." Stream live execution status to reviewer topbar
   zenspec adr <file> [--out <dest>]    Generate Architecture Decision Record (ADR)
