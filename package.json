@@ -4,9 +4,7 @@
   "description": "Minimalist, token-efficient Agent Experience Interface (AXI) and browser reviewer for Markdown & HTML artifacts",
   "type": "module",
   "bin": {
-    "zenspec": "dist/cli.mjs",
-    "zenspec-axi": "dist/cli.mjs",
-    "zen-axi": "dist/cli.mjs"
+    "zenspec": "dist/cli.mjs"
   },
   "files": [
     "dist",
