@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   verify:
@@ -12,29 +12,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: "pnpm"
+          cache: "npm"
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Typecheck
-        run: pnpm run typecheck
+        run: npm run typecheck
 
       - name: Lint
-        run: pnpm run lint
+        run: npm run lint
 
       - name: Format Check
-        run: pnpm run format:check
+        run: npm run format:check
 
       - name: Test
-        run: pnpm run test
+        run: npm test
 
       - name: Build
-        run: pnpm run build
+        run: npm run build

@@ -23,7 +23,7 @@
     "lint:fix": "eslint src tests scripts --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepack": "pnpm run build"
+    "prepack": "npm run build"
   },
   "engines": {
     "node": ">=24"
