@@ -25,7 +25,7 @@ export class ZenServer {
   private sseClients: Map<string, Set<http.ServerResponse>> = new Map();
 
   constructor(options: ServerOptions = {}) {
-    this.port = options.port || 4388;
+    this.port = options.port !== undefined ? options.port : 4388;
     this.host = options.host || "127.0.0.1";
     this.store = options.store || new SessionStore();
     this.server = http.createServer(this.handleRequest.bind(this));
@@ -307,29 +307,32 @@ export class ZenServer {
         return;
       }
 
+      // Set JSON header upfront
+      res.setHeader("Content-Type", "application/json");
+
       // Wait for prompts or end
       let isDone = false;
       const waiter = (pollRes: PollResponse) => {
         if (isDone) return;
         isDone = true;
+        clearInterval(heartbeat);
         if (pollRes.status === "feedback") {
           this.store.setPresence(key, "working");
         } else {
           this.store.setPresence(key, "waiting");
         }
-        res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(pollRes));
       };
 
       this.store.registerPollWaiter(key, waiter);
 
-      // Heartbeat comment ticks to keep long-poll alive through proxies
+      // Heartbeat whitespace bytes to keep long-poll alive through proxies
       const heartbeat = setInterval(() => {
         if (isDone) {
           clearInterval(heartbeat);
           return;
         }
-        res.write(" "); // whitespace heartbeat byte
+        res.write(" ");
       }, 15000);
 
       req.on("close", () => {

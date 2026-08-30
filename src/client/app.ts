@@ -4,6 +4,7 @@
 
 interface PromptItem {
   id: string;
+  queueKey?: string;
   tag: "annotation" | "question" | "chat" | "diagram";
   text: string;
   target?: {
@@ -79,23 +80,51 @@ async function loadDocument() {
         }
       }
 
-      // Initialize Markmaps
-      if ((window as any).markmap) {
-        // markmap auto-renders markmap-svg elements
+      // Render KaTeX Math Formulas
+      if ((window as any).renderMathInElement) {
+        try {
+          (window as any).renderMathInElement(container, {
+            delimiters: [
+              { left: "$$", right: "$$", display: true },
+              { left: "$", right: "$", display: false },
+            ],
+            throwOnError: false,
+          });
+        } catch (e) {
+          console.warn("KaTeX render error:", e);
+        }
       }
 
-      // Attach task list click handlers
-      container.querySelectorAll(".zen-task-checkbox").forEach((cb) => {
-        cb.addEventListener("change", (e: any) => {
-          const li = e.target.closest("li");
-          const label = li?.textContent?.trim() || "Choice";
-          const node = e.target.closest("[data-line-start]");
-          const line = node ? parseInt(node.getAttribute("data-line-start"), 10) : 1;
+      // Attach question confirmation handlers
+      container.querySelectorAll(".zen-question-confirm-btn").forEach((btn: any) => {
+        btn.addEventListener("click", (e: any) => {
+          e.stopPropagation();
+          const qCard = btn.closest(".zen-callout-question");
+          const questionId = btn.dataset.questionId;
+          const selectedRadio = qCard?.querySelector(
+            'input[type="radio"]:checked',
+          ) as HTMLInputElement;
 
-          queuePrompt({
-            id: `task-${Date.now()}`,
+          if (!selectedRadio) {
+            alert("Please select one of the options first.");
+            return;
+          }
+
+          const label =
+            selectedRadio.closest("li")?.textContent?.trim() ||
+            selectedRadio.value ||
+            "Selected option";
+          const questionTitle =
+            qCard?.querySelector(".zen-callout-title")?.textContent?.replace(/^❓\s*/, "") ||
+            "Question";
+          const node = qCard?.closest("[data-line-start]") || qCard;
+          const line = node ? parseInt(node.getAttribute("data-line-start") || "1", 10) : 1;
+
+          queueOrReplacePrompt({
+            id: `q-${questionId}`,
+            queueKey: `question-${questionId}`,
             tag: "question",
-            text: `Selected choice: "${label}"`,
+            text: `Answer to "${questionTitle}": ${label}`,
             target: {
               type: "markdown-range",
               startLine: line,
@@ -104,7 +133,7 @@ async function loadDocument() {
             },
             createdAt: new Date().toISOString(),
           });
-          showToast(`✓ Choice queued: ${label}`);
+          showToast(`✓ Confirmed answer: "${label}"`);
         });
       });
 
@@ -289,6 +318,19 @@ function closeAnnotationModal() {
 // Queue Management & Prompt Submission
 // -----------------------------------------------------------------------------
 function queuePrompt(item: PromptItem) {
+  queuedPrompts.push(item);
+  renderQueue();
+}
+
+function queueOrReplacePrompt(item: PromptItem) {
+  if (item.queueKey) {
+    const idx = queuedPrompts.findIndex((p) => p.queueKey === item.queueKey);
+    if (idx !== -1) {
+      queuedPrompts[idx] = item;
+      renderQueue();
+      return;
+    }
+  }
   queuedPrompts.push(item);
   renderQueue();
 }

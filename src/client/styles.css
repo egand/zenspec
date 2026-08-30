@@ -265,6 +265,74 @@ code {
 
 .zen-callout-question {
   border-left-color: var(--accent-yellow);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--accent-yellow);
+  border-radius: 6px;
+}
+
+.zen-callout-question ul {
+  list-style: none;
+  padding-left: 0;
+  margin: 0.75rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.zen-callout-question li.zen-task-item {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-bottom: 0;
+}
+
+.zen-callout-question li.zen-task-item:hover {
+  border-color: var(--accent-primary);
+}
+
+.zen-callout-question li.zen-task-item label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  width: 100%;
+}
+
+.zen-callout-question li.zen-task-item label span p {
+  margin-bottom: 0;
+  display: inline;
+}
+
+.zen-callout-question input[type="radio"],
+.zen-callout-question input[type="checkbox"] {
+  accent-color: var(--accent-primary);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.zen-question-actions {
+  margin-top: 0.75rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.zen-question-confirm-btn {
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.zen-question-confirm-btn:hover {
+  background: var(--accent-hover);
 }
 
 .zen-table-wrapper {

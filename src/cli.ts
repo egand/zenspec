@@ -163,11 +163,13 @@ async function main() {
       let body = "";
       res.on("data", (chunk) => (body += chunk));
       res.on("end", () => {
+        const trimmed = body.trim();
+        if (!trimmed) return;
         try {
-          const data = JSON.parse(body);
+          const data = JSON.parse(trimmed);
           console.log(JSON.stringify(data, null, 2));
         } catch {
-          console.log(body);
+          console.log(trimmed);
         }
       });
     });

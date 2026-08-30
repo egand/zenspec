@@ -97,7 +97,15 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
         if (questionMatch) {
           const rest = body.replace(/^\s*<p[^>]*>\s*\[!QUESTION\]\s*[\s\S]*?<\/p>/i, "").trim();
           const questionTitle = questionMatch[1];
-          return `<div ${getAttr(range)} class="zen-callout zen-callout-question"><div class="zen-callout-title">❓ ${questionTitle}</div><div class="zen-callout-body">${rest}</div></div>\n`;
+          const questionId = `q-${range?.startLine || Math.floor(Math.random() * 1000)}`;
+          const radioBody = rest.replace(/type="checkbox"/g, `type="radio" name="${questionId}"`);
+          return `<div ${getAttr(range)} class="zen-callout zen-callout-question" data-question-id="${questionId}">
+            <div class="zen-callout-title">❓ ${questionTitle}</div>
+            <div class="zen-callout-body">${radioBody}</div>
+            <div class="zen-question-actions">
+              <button type="button" class="zen-question-confirm-btn" data-question-id="${questionId}">✓ Confirm Answer</button>
+            </div>
+          </div>\n`;
         }
 
         const tipMatch = body.match(
