@@ -3,9 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import chokidar from "chokidar";
-import { SessionStore, sessionKey } from "./session-store.js";
+import { SessionStore, sessionKey, scanWorkspaceDocuments } from "./session-store.js";
 import { renderMarkdownWithSourceLines } from "./sourcemap.js";
-import { PollResponse, PromptItem } from "./types.js";
+import { generateADRDocument } from "./adr.js";
+import { PollResponse, PromptItem, AgentProgressUpdate } from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -47,16 +48,33 @@ export class ZenServer {
   }
 
   public async start(): Promise<{ port: number; host: string }> {
-    return new Promise((resolve, reject) => {
-      this.server.on("error", reject);
-      this.server.listen(this.port, this.host, () => {
-        const addr = this.server.address();
-        if (addr && typeof addr === "object") {
-          this.port = addr.port;
-        }
-        resolve({ port: this.port, host: this.host });
+    const tryListen = (portToTry: number): Promise<{ port: number; host: string }> => {
+      return new Promise((resolve, reject) => {
+        const onError = (err: any) => {
+          this.server.removeListener("listening", onListening);
+          if (err.code === "EADDRINUSE" && this.port !== 0 && portToTry < this.port + 10) {
+            resolve(tryListen(portToTry + 1));
+          } else {
+            reject(err);
+          }
+        };
+
+        const onListening = () => {
+          this.server.removeListener("error", onError);
+          const addr = this.server.address();
+          if (addr && typeof addr === "object") {
+            this.port = addr.port;
+          }
+          resolve({ port: this.port, host: this.host });
+        };
+
+        this.server.once("error", onError);
+        this.server.once("listening", onListening);
+        this.server.listen(portToTry, this.host);
       });
-    });
+    };
+
+    return tryListen(this.port);
   }
 
   public async stop(): Promise<void> {
@@ -72,7 +90,6 @@ export class ZenServer {
 
   public watchFile(key: string, filePath: string): void {
     if (this.watchers.has(key)) return;
-
     if (!fs.existsSync(filePath)) return;
 
     const watcher = chokidar.watch(filePath, {
@@ -84,9 +101,18 @@ export class ZenServer {
     watcher.on("all", () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
-        this.emitSSE(key, "reload", {
-          timestamp: Date.now(),
-        });
+        try {
+          if (fs.existsSync(filePath)) {
+            const newContent = fs.readFileSync(filePath, "utf8");
+            const diffs = this.store.recordFileUpdate(key, newContent);
+            this.emitSSE(key, "reload", {
+              timestamp: Date.now(),
+              diffs,
+            });
+          }
+        } catch {
+          this.emitSSE(key, "reload", { timestamp: Date.now() });
+        }
       }, 50);
     });
 
@@ -107,7 +133,7 @@ export class ZenServer {
     // CORS Headers
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);
@@ -121,7 +147,7 @@ export class ZenServer {
     // Health check
     if (pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, app: "zen-axi", version: "0.1.0" }));
+      res.end(JSON.stringify({ ok: true, app: "zen-axi", version: "0.1.0", port: this.port }));
       return;
     }
 
@@ -165,7 +191,6 @@ export class ZenServer {
         fs.createReadStream(indexPath).pipe(res);
         return;
       }
-      // Fallback simple HTML shell if dist/client/index.html is not yet built
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end("<!DOCTYPE html><html><body><h1>Zen AXI Server Running</h1></body></html>");
       return;
@@ -198,18 +223,29 @@ export class ZenServer {
       }
       clientSet.add(res);
 
-      // Start watching the file
       this.watchFile(key, session.canonicalPath);
 
-      // Send initial presence and state snapshot
+      // Send initial presence, progress, and diffs
       res.write(`event: presence\ndata: ${JSON.stringify({ presence: session.presence })}\n\n`);
+      if (session.activeProgress) {
+        res.write(`event: progress\ndata: ${JSON.stringify(session.activeProgress)}\n\n`);
+      }
+      if (session.diffs && session.diffs.length > 0) {
+        res.write(`event: diff\ndata: ${JSON.stringify({ diffs: session.diffs })}\n\n`);
+      }
       if (session.ended) {
         res.write(`event: ended\ndata: ${JSON.stringify({ endedBy: session.endedBy })}\n\n`);
       }
 
-      // Event listeners for session store
+      // Event listeners
       const onPresence = (presence: string) => {
         res.write(`event: presence\ndata: ${JSON.stringify({ presence })}\n\n`);
+      };
+      const onProgress = (prog: any) => {
+        res.write(`event: progress\ndata: ${JSON.stringify(prog)}\n\n`);
+      };
+      const onDiff = (diffData: any) => {
+        res.write(`event: diff\ndata: ${JSON.stringify(diffData)}\n\n`);
       };
       const onChat = (msg: any) => {
         res.write(`event: chat\ndata: ${JSON.stringify(msg)}\n\n`);
@@ -219,12 +255,16 @@ export class ZenServer {
       };
 
       this.store.on(`presence:${key}`, onPresence);
+      this.store.on(`progress:${key}`, onProgress);
+      this.store.on(`diff:${key}`, onDiff);
       this.store.on(`chat:${key}`, onChat);
       this.store.on(`ended:${key}`, onEnded);
 
       req.on("close", () => {
         clientSet?.delete(res);
         this.store.off(`presence:${key}`, onPresence);
+        this.store.off(`progress:${key}`, onProgress);
+        this.store.off(`diff:${key}`, onDiff);
         this.store.off(`chat:${key}`, onChat);
         this.store.off(`ended:${key}`, onEnded);
       });
@@ -237,31 +277,121 @@ export class ZenServer {
       const key = docMatch[1];
       const session = this.store.getSession(key);
 
-      if (!session || !fs.existsSync(session.canonicalPath)) {
+      if (!session) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Session not found" }));
+        return;
+      }
+
+      let filePathToRead = session.canonicalPath;
+      const targetQueryFile = parsedUrl.searchParams.get("file");
+      if (targetQueryFile && session.workspaceRoot) {
+        const candidate = path.resolve(session.workspaceRoot, targetQueryFile);
+        if (candidate.startsWith(session.workspaceRoot) && fs.existsSync(candidate)) {
+          filePathToRead = candidate;
+        }
+      }
+
+      if (!fs.existsSync(filePathToRead)) {
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Document not found" }));
         return;
       }
 
-      const raw = fs.readFileSync(session.canonicalPath, "utf8");
-      const stat = fs.statSync(session.canonicalPath);
-      const renderedHtml =
-        session.docType === "markdown" ? renderMarkdownWithSourceLines(raw) : raw;
+      const raw = fs.readFileSync(filePathToRead, "utf8");
+      const stat = fs.statSync(filePathToRead);
+      const ext = path.extname(filePathToRead).toLowerCase();
+      const docType = ext === ".html" || ext === ".htm" ? "html" : "markdown";
+      const renderedHtml = docType === "markdown" ? renderMarkdownWithSourceLines(raw) : raw;
 
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
           key: session.key,
-          file: session.filePath,
-          docType: session.docType,
+          file:
+            path.relative(session.workspaceRoot || path.dirname(filePathToRead), filePathToRead) ||
+            path.basename(filePathToRead),
+          fullPath: filePathToRead,
+          docType,
           raw,
           renderedHtml,
           lastModified: stat.mtimeMs,
           ended: session.ended,
           endedBy: session.endedBy,
+          presence: session.presence,
+          activeProgress: session.activeProgress,
           chatHistory: session.chatHistory,
+          diffs: session.diffs || [],
         }),
       );
+      return;
+    }
+
+    // Workspace files API: /api/:key/workspace
+    const wsMatch = pathname.match(/^\/api\/([a-zA-Z0-9]+)\/workspace$/);
+    if (wsMatch && req.method === "GET") {
+      const key = wsMatch[1];
+      const session = this.store.getSession(key);
+
+      if (!session) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Session not found" }));
+        return;
+      }
+
+      const root = session.workspaceRoot || path.dirname(session.canonicalPath);
+      const files = scanWorkspaceDocuments(root);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ root, workspaceRoot: root, files }));
+      return;
+    }
+
+    // ADR Materialization API: /api/:key/adr
+    const adrMatch = pathname.match(/^\/api\/([a-zA-Z0-9]+)\/adr$/);
+    if (adrMatch && req.method === "GET") {
+      const key = adrMatch[1];
+      const session = this.store.getSession(key);
+
+      if (!session || !fs.existsSync(session.canonicalPath)) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Session or file not found" }));
+        return;
+      }
+
+      const raw = fs.readFileSync(session.canonicalPath, "utf8");
+      const adrMarkdown = generateADRDocument({ session, docContent: raw });
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ adr: adrMarkdown, adrMarkdown }));
+      return;
+    }
+
+    // Agent Progress Telemetry endpoint: /api/:key/progress
+    const progMatch = pathname.match(/^\/api\/([a-zA-Z0-9]+)\/progress$/);
+    if (progMatch && req.method === "POST") {
+      const key = progMatch[1];
+      const session = this.store.getSession(key);
+
+      if (!session) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Session not found" }));
+        return;
+      }
+
+      const body = await readJsonBody(req);
+      const update: AgentProgressUpdate = {
+        id: `prog-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        step: body?.step || "Executing step...",
+        status: body?.status || "running",
+        details: body?.details,
+      };
+
+      this.store.setProgress(key, update);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, progress: update }));
       return;
     }
 
@@ -288,10 +418,8 @@ export class ZenServer {
         return;
       }
 
-      // Mark agent presence as listening
       this.store.setPresence(key, "listening");
 
-      // Check if prompts are already queued
       if (session.queuedPrompts.length > 0) {
         const prompts = this.store.takeQueuedPrompts(key);
         this.store.setPresence(key, "working");
@@ -322,10 +450,8 @@ export class ZenServer {
         return;
       }
 
-      // Set JSON header upfront
       res.setHeader("Content-Type", "application/json");
 
-      // Wait for prompts or end
       let isDone = false;
       const waiter = (pollRes: PollResponse) => {
         if (isDone) return;
@@ -341,7 +467,6 @@ export class ZenServer {
 
       this.store.registerPollWaiter(key, waiter);
 
-      // Heartbeat whitespace bytes to keep long-poll alive through proxies
       const heartbeat = setInterval(() => {
         if (isDone) {
           clearInterval(heartbeat);

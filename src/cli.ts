@@ -8,11 +8,34 @@ import pc from "picocolors";
 import { ZenServer } from "./server.js";
 import { SessionStore, sessionKey } from "./session-store.js";
 import { renderMarkdownWithSourceLines } from "./sourcemap.js";
+import { generateADRDocument, resolveDefaultAdrPath } from "./adr.js";
+import { runMcpServer } from "./mcp.js";
+import { startTunnel } from "./tunnel.js";
 
 const DEFAULT_PORT = 4388;
 const DEFAULT_HOST = "127.0.0.1";
 
 const __filename = fileURLToPath(import.meta.url);
+
+async function postToDaemon(apiPath: string, payload: any = {}): Promise<number> {
+  const postData = JSON.stringify(payload);
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      `http://${DEFAULT_HOST}:${DEFAULT_PORT}${apiPath}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(postData),
+        },
+      },
+      (res) => resolve(res.statusCode || 500),
+    );
+    req.on("error", reject);
+    req.write(postData);
+    req.end();
+  });
+}
 
 async function isServerRunning(port = DEFAULT_PORT, host = DEFAULT_HOST): Promise<boolean> {
   return new Promise((resolve) => {
@@ -66,6 +89,14 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
+  // zen-axi mcp (native Model Context Protocol server over stdio)
+  // ---------------------------------------------------------------------------
+  if (command === "mcp") {
+    await runMcpServer();
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
   // zen-axi server (foreground daemon worker)
   // ---------------------------------------------------------------------------
   if (command === "server") {
@@ -76,7 +107,7 @@ async function main() {
 
     const server = new ZenServer({ port, host });
     await server.start();
-    console.log(pc.green(`Zen AXI Server listening on http://${host}:${port}`));
+    console.log(pc.green(`Zen AXI Server listening on http://${host}:${server.port}`));
     return;
   }
 
@@ -90,19 +121,12 @@ async function main() {
       return;
     }
 
-    const req = http.request(
-      `http://${DEFAULT_HOST}:${DEFAULT_PORT}/shutdown`,
-      { method: "POST" },
-      (res) => {
-        if (res.statusCode === 200) {
-          console.log(pc.green("✓ Zen AXI server stopped successfully."));
-        } else {
-          console.log(pc.red("Failed to stop server."));
-        }
-      },
-    );
-    req.on("error", (err) => console.error(pc.red(`Error: ${err.message}`)));
-    req.end();
+    const statusCode = await postToDaemon("/shutdown");
+    if (statusCode === 200) {
+      console.log(pc.green("✓ Zen AXI server stopped successfully."));
+    } else {
+      console.log(pc.red("Failed to stop server."));
+    }
     return;
   }
 
@@ -150,10 +174,9 @@ async function main() {
     const replyIdx = args.indexOf("--agent-reply");
     if (replyIdx !== -1 && args[replyIdx + 1]) {
       const replyText = args[replyIdx + 1];
-      await sendAgentReply(key, replyText);
+      await postToDaemon(`/api/${key}/reply`, { message: replyText });
     }
 
-    // Long poll HTTP
     process.stderr.write(
       pc.cyan(`\n⏳ Zen AXI: Waiting for human feedback on ${pc.bold(path.basename(file))}...\n`),
     );
@@ -201,8 +224,60 @@ async function main() {
 
     const canonicalPath = fs.existsSync(file) ? fs.realpathSync(file) : path.resolve(file);
     const key = sessionKey(canonicalPath);
-    await sendAgentReply(key, message);
+    await postToDaemon(`/api/${key}/reply`, { message });
     console.log(pc.green("✓ Reply delivered to browser conversation."));
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // zen-axi progress <file> --step "..." [--status running|done|error] [--details "..."]
+  // ---------------------------------------------------------------------------
+  if (command === "progress") {
+    const file = args[1];
+    const stepIdx = args.indexOf("--step");
+    const step = stepIdx !== -1 ? args[stepIdx + 1] : args[2];
+    const statusIdx = args.indexOf("--status");
+    const status = statusIdx !== -1 ? args[statusIdx + 1] : "running";
+    const detailsIdx = args.indexOf("--details");
+    const details = detailsIdx !== -1 ? args[detailsIdx + 1] : undefined;
+
+    if (!file || !step) {
+      console.error(pc.red("Usage: zen-axi progress <file> --step <text> [--status <status>]"));
+      process.exit(1);
+    }
+
+    const canonicalPath = fs.existsSync(file) ? fs.realpathSync(file) : path.resolve(file);
+    const key = sessionKey(canonicalPath);
+
+    const statusCode = await postToDaemon(`/api/${key}/progress`, { step, status, details });
+    if (statusCode === 200) {
+      console.log(pc.green(`✓ Telemetry progress posted: [${status}] ${step}`));
+    }
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // zen-axi adr <file> [--out <dest>]
+  // ---------------------------------------------------------------------------
+  if (command === "adr") {
+    const file = args[1];
+    if (!file || !fs.existsSync(file)) {
+      console.error(pc.red(`Error: File not found: ${file}`));
+      process.exit(1);
+    }
+
+    const canonicalPath = fs.realpathSync(file);
+    const store = new SessionStore();
+    const session = store.getOrCreateSession(canonicalPath);
+    const raw = fs.readFileSync(canonicalPath, "utf8");
+
+    const outIdx = args.indexOf("--out");
+    const customOut = outIdx !== -1 ? args[outIdx + 1] : undefined;
+    const outPath = resolveDefaultAdrPath(canonicalPath, customOut);
+
+    const adrContent = generateADRDocument({ session, docContent: raw });
+    fs.writeFileSync(outPath, adrContent, "utf8");
+    console.log(pc.green(`✓ Architecture Decision Record created: ${pc.bold(outPath)}`));
     return;
   }
 
@@ -219,25 +294,10 @@ async function main() {
     const canonicalPath = fs.existsSync(file) ? fs.realpathSync(file) : path.resolve(file);
     const key = sessionKey(canonicalPath);
 
-    const postData = JSON.stringify({ endedBy: "agent" });
-    const req = http.request(
-      `http://${DEFAULT_HOST}:${DEFAULT_PORT}/api/${key}/end`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(postData),
-        },
-      },
-      (res) => {
-        if (res.statusCode === 200) {
-          console.log(pc.green(`✓ Session for ${pc.bold(file)} concluded as agent.`));
-        }
-      },
-    );
-    req.on("error", (err) => console.error(pc.red(`Error: ${err.message}`)));
-    req.write(postData);
-    req.end();
+    const statusCode = await postToDaemon(`/api/${key}/end`, { endedBy: "agent" });
+    if (statusCode === 200) {
+      console.log(pc.green(`✓ Session for ${pc.bold(file)} concluded as agent.`));
+    }
     return;
   }
 
@@ -289,58 +349,54 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
-  // Default: zen-axi <file.md|file.html>
+  // Default: zen-axi <file.md|file.html|folder>
   // ---------------------------------------------------------------------------
   const targetFile = command;
   if (!fs.existsSync(targetFile)) {
-    console.error(pc.red(`Error: File does not exist: ${targetFile}`));
+    console.error(pc.red(`Error: Path does not exist: ${targetFile}`));
     process.exit(1);
   }
 
-  const canonicalPath = fs.realpathSync(targetFile);
+  const isDir = fs.statSync(targetFile).isDirectory();
+  const canonicalPath = isDir ? targetFile : fs.realpathSync(targetFile);
+
+  const portIdx = args.indexOf("--port");
+  const customPort = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : DEFAULT_PORT;
+
   const store = new SessionStore();
   const session = store.getOrCreateSession(canonicalPath);
 
-  // Ensure background daemon is running
-  await startServerDaemon();
+  await startServerDaemon(customPort);
 
-  const sessionUrl = `http://${DEFAULT_HOST}:${DEFAULT_PORT}/session/${session.key}`;
+  const sessionUrl = `http://${DEFAULT_HOST}:${customPort}/session/${session.key}`;
   const noOpen = args.includes("--no-open");
+  const shouldShare = args.includes("--share");
 
   if (!noOpen) {
     await open(sessionUrl);
   }
 
   console.log(pc.bold(pc.cyan("\n🧘 Zen AXI Reviewer\n")));
-  console.log(`  ${pc.bold("File:")}     ${pc.green(targetFile)} (${session.docType})`);
+  console.log(
+    `  ${pc.bold("Target:")}   ${pc.green(targetFile)} (${isDir ? "workspace" : session.docType})`,
+  );
   console.log(`  ${pc.bold("Review:")}   ${pc.underline(sessionUrl)}`);
   console.log(`  ${pc.bold("Status:")}   ${session.ended ? pc.red("Ended") : pc.green("Active")}`);
+
+  if (shouldShare) {
+    console.log(pc.yellow(`\n  🌐 Initializing secure remote sharing tunnel...`));
+    try {
+      const tunnel = await startTunnel(customPort, session.token);
+      console.log(`  ${pc.bold("Public:")}   ${pc.green(pc.underline(tunnel.url))}`);
+      console.log(`  ${pc.dim("(Remote link with session authentication)")}`);
+    } catch (err: any) {
+      console.log(pc.dim(`  Could not start tunnel: ${err.message}`));
+    }
+  }
+
   console.log(
     `\n${pc.dim("Next step:")} Run ${pc.cyan(`zen-axi poll "${targetFile}"`)} to wait for human feedback.\n`,
   );
-}
-
-async function sendAgentReply(key: string, message: string): Promise<void> {
-  const postData = JSON.stringify({ message });
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      `http://${DEFAULT_HOST}:${DEFAULT_PORT}/api/${key}/reply`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(postData),
-        },
-      },
-      (res) => {
-        if (res.statusCode === 200) resolve();
-        else reject(new Error(`Status ${res.statusCode}`));
-      },
-    );
-    req.on("error", reject);
-    req.write(postData);
-    req.end();
-  });
 }
 
 function printHelp() {
@@ -348,17 +404,22 @@ function printHelp() {
 ${pc.bold(pc.cyan("Zen AXI"))} - Minimalist, token-efficient Agent Experience Interface (AXI) for Markdown & HTML artifacts
 
 ${pc.bold("USAGE:")}
-  zen-axi <file.md|file.html>          Open or resume review session in browser
+  zen-axi <file|dir>                   Open or resume review session in browser
   zen-axi poll <file>                  Wait for human feedback via long-polling
-  zen-axi reply <file> --message "..." Send progress message to browser conversation
+  zen-axi reply <file> -m "..."        Send progress message to browser conversation
+  zen-axi progress <file> --step "..." Stream live execution status to reviewer topbar
+  zen-axi adr <file> [--out <dest>]    Generate Architecture Decision Record (ADR)
   zen-axi end <file>                   Conclude review session as agent
   zen-axi export <file> [--out <dest>] Export standalone portable HTML
+  zen-axi mcp                          Run native Model Context Protocol (MCP) server
   zen-axi status                       List active review sessions
   zen-axi stop                         Stop local background daemon
 
 ${pc.bold("FLAGS:")}
+  --share                              Start secure remote tunnel for Codespaces/remote dev
   --no-open                            Start/resume session without launching browser
   --agent-reply "<msg>"                Attach agent reply when polling
+  --port <number>                      Specify custom server port (default: 4388)
   --help, -h                           Show this help message
   --version, -v                        Show version
 `);

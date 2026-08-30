@@ -9,6 +9,9 @@ import {
   ChatMessage,
   DocumentType,
   AgentPresenceState,
+  AgentProgressUpdate,
+  WorkspaceDocumentInfo,
+  DiffRange,
   PollResponse,
 } from "./types.js";
 
@@ -17,6 +20,116 @@ const STATE_FILE = path.join(STATE_DIR, "state.json");
 
 export function sessionKey(canonicalPath: string): string {
   return crypto.createHash("sha256").update(canonicalPath).digest("hex").slice(0, 16);
+}
+
+export function computeLineDiff(oldStr: string, newStr: string): DiffRange[] {
+  if (!oldStr || oldStr === newStr) return [];
+  const oldLines = oldStr.split(/\r?\n/);
+  const newLines = newStr.split(/\r?\n/);
+  const diffs: DiffRange[] = [];
+
+  let oldIdx = 0;
+  let newIdx = 0;
+
+  while (newIdx < newLines.length && oldIdx < oldLines.length) {
+    if (newLines[newIdx] === oldLines[oldIdx]) {
+      oldIdx++;
+      newIdx++;
+      continue;
+    }
+
+    const startLine = newIdx + 1;
+    let oldMatch = -1;
+    let newMatch = -1;
+
+    for (let di = 0; di < 30; di++) {
+      if (newIdx + di < newLines.length) {
+        const found = oldLines.indexOf(newLines[newIdx + di], oldIdx);
+        if (found !== -1) {
+          oldMatch = found;
+          newMatch = newIdx + di;
+          break;
+        }
+      }
+    }
+
+    if (newMatch !== -1 && oldMatch !== -1) {
+      if (newMatch > newIdx || oldMatch > oldIdx) {
+        diffs.push({
+          startLine,
+          endLine: Math.max(startLine, newMatch),
+          type: oldMatch > oldIdx && newMatch > newIdx ? "modified" : "added",
+          newText: newLines.slice(newIdx, newMatch).join("\n"),
+          oldText: oldLines.slice(oldIdx, oldMatch).join("\n"),
+        });
+      }
+      newIdx = newMatch;
+      oldIdx = oldMatch;
+    } else {
+      diffs.push({
+        startLine: newIdx + 1,
+        endLine: newLines.length,
+        type: "modified",
+        newText: newLines.slice(newIdx).join("\n"),
+        oldText: oldLines.slice(oldIdx).join("\n"),
+      });
+      break;
+    }
+  }
+
+  if (newIdx < newLines.length) {
+    diffs.push({
+      startLine: newIdx + 1,
+      endLine: newLines.length,
+      type: "added",
+      newText: newLines.slice(newIdx).join("\n"),
+    });
+  }
+
+  return diffs;
+}
+
+export function scanWorkspaceDocuments(dirPath: string): WorkspaceDocumentInfo[] {
+  const results: WorkspaceDocumentInfo[] = [];
+  if (!fs.existsSync(dirPath)) return results;
+
+  function walk(current: string) {
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const ent of entries) {
+      if (ent.name.startsWith(".") || ent.name === "node_modules" || ent.name === "dist") {
+        continue;
+      }
+      const full = path.join(current, ent.name);
+      if (ent.isDirectory()) {
+        walk(full);
+      } else if (ent.isFile()) {
+        const ext = path.extname(ent.name).toLowerCase();
+        if (ext === ".md" || ext === ".markdown" || ext === ".html" || ext === ".htm") {
+          try {
+            const stat = fs.statSync(full);
+            results.push({
+              relPath: path.relative(dirPath, full),
+              absPath: full,
+              docType: ext === ".html" || ext === ".htm" ? "html" : "markdown",
+              sizeBytes: stat.size,
+              lastModified: stat.mtimeMs,
+            });
+          } catch {
+            // Ignore stat errors
+          }
+        }
+      }
+    }
+  }
+
+  walk(dirPath);
+  return results;
 }
 
 export class SessionStore extends EventEmitter {
@@ -61,10 +174,21 @@ export class SessionStore extends EventEmitter {
     }
   }
 
-  public getOrCreateSession(targetFile: string): SessionState {
-    const canonicalPath = fs.existsSync(targetFile)
-      ? fs.realpathSync(targetFile)
-      : path.resolve(targetFile);
+  public getOrCreateSession(targetFile: string, options: { token?: string } = {}): SessionState {
+    const isDir = fs.existsSync(targetFile) && fs.statSync(targetFile).isDirectory();
+    let canonicalPath = targetFile;
+    let workspaceRoot = isDir ? targetFile : path.dirname(targetFile);
+
+    if (isDir) {
+      const docs = scanWorkspaceDocuments(targetFile);
+      const firstDoc = docs.find((d) => d.relPath.endsWith("README.md")) || docs[0];
+      canonicalPath = firstDoc ? firstDoc.absPath : path.join(targetFile, "index.md");
+      workspaceRoot = targetFile;
+    } else {
+      canonicalPath = fs.existsSync(targetFile)
+        ? fs.realpathSync(targetFile)
+        : path.resolve(targetFile);
+    }
 
     const key = sessionKey(canonicalPath);
     let session = this.sessions.get(key);
@@ -72,16 +196,23 @@ export class SessionStore extends EventEmitter {
     const ext = path.extname(canonicalPath).toLowerCase();
     const docType: DocumentType = ext === ".html" || ext === ".htm" ? "html" : "markdown";
 
+    const initialContent = fs.existsSync(canonicalPath)
+      ? fs.readFileSync(canonicalPath, "utf8")
+      : "";
+
     if (!session) {
       session = {
         key,
         filePath: targetFile,
         canonicalPath,
         docType,
+        token: options.token || crypto.randomBytes(8).toString("hex"),
+        workspaceRoot,
         ended: false,
         presence: "waiting",
         queuedPrompts: [],
         chatHistory: [],
+        currentContent: initialContent,
         lastModified: fs.existsSync(canonicalPath)
           ? fs.statSync(canonicalPath).mtimeMs
           : Date.now(),
@@ -89,10 +220,14 @@ export class SessionStore extends EventEmitter {
       this.sessions.set(key, session);
       this.persistState();
     } else {
-      // Revive if was ended and we're reopening
       session.filePath = targetFile;
       session.canonicalPath = canonicalPath;
       session.docType = docType;
+      session.workspaceRoot = workspaceRoot;
+      if (options.token) session.token = options.token;
+      if (!session.currentContent && initialContent) {
+        session.currentContent = initialContent;
+      }
     }
 
     return session;
@@ -113,12 +248,41 @@ export class SessionStore extends EventEmitter {
     return Array.from(this.sessions.values());
   }
 
+  public recordFileUpdate(key: string, newContent: string): DiffRange[] {
+    const session = this.sessions.get(key);
+    if (!session) return [];
+
+    const oldContent = session.currentContent || "";
+    const diffs = computeLineDiff(oldContent, newContent);
+
+    session.previousContent = oldContent;
+    session.currentContent = newContent;
+    session.diffs = diffs;
+    session.lastModified = Date.now();
+    this.persistState();
+
+    this.emit(`diff:${key}`, { diffs, lastModified: session.lastModified });
+    return diffs;
+  }
+
   public setPresence(key: string, presence: AgentPresenceState): void {
     const session = this.sessions.get(key);
     if (!session) return;
     session.presence = presence;
     this.persistState();
     this.emit(`presence:${key}`, presence);
+  }
+
+  public setProgress(key: string, update: AgentProgressUpdate): void {
+    const session = this.sessions.get(key);
+    if (!session) return;
+
+    session.activeProgress = update;
+    if (update.status === "running") {
+      session.presence = "working";
+    }
+    this.persistState();
+    this.emit(`progress:${key}`, update);
   }
 
   public queuePrompt(key: string, prompt: PromptItem): void {
@@ -129,7 +293,6 @@ export class SessionStore extends EventEmitter {
     this.persistState();
     this.emit(`prompt:${key}`, prompt);
 
-    // If there is an active poll waiter, resolve it
     this.flushPollWaiters(key);
   }
 
@@ -175,7 +338,6 @@ export class SessionStore extends EventEmitter {
             message: "New poll client connected for this session.",
           });
         } catch (err) {
-          // Ignore closed connections
           void err;
         }
       }

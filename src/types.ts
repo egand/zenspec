@@ -11,6 +11,7 @@ export interface MarkdownTarget {
   startLine: number;
   endLine: number;
   selectedText?: string;
+  replacementText?: string;
   headingContext?: string;
 }
 
@@ -18,6 +19,7 @@ export interface HtmlTarget {
   type: "dom-element";
   selector: string;
   tagName: string;
+  textPreview?: string;
   tableInfo?: {
     rowName?: string;
     columnName?: string;
@@ -26,7 +28,7 @@ export interface HtmlTarget {
 
 export interface PromptItem {
   id: string;
-  tag: "annotation" | "question" | "chat" | "diagram";
+  tag: "annotation" | "suggestion" | "question" | "chat" | "diagram";
   text: string;
   target?: MarkdownTarget | HtmlTarget;
   createdAt: string;
@@ -39,17 +41,48 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+export interface AgentProgressUpdate {
+  id: string;
+  timestamp: string;
+  step: string;
+  status: "running" | "done" | "error";
+  details?: string;
+}
+
+export interface WorkspaceDocumentInfo {
+  relPath: string;
+  absPath: string;
+  docType: DocumentType;
+  sizeBytes: number;
+  lastModified: number;
+}
+
+export interface DiffRange {
+  startLine: number;
+  endLine: number;
+  type: "added" | "modified" | "deleted";
+  oldText?: string;
+  newText?: string;
+}
+
 export interface SessionState {
   key: string;
   filePath: string;
   canonicalPath: string;
   docType: DocumentType;
+  token?: string;
+  workspaceRoot?: string;
+  workspaceFiles?: string[];
   ended: boolean;
   endedBy?: "user" | "agent";
   presence: AgentPresenceState;
+  activeProgress?: AgentProgressUpdate;
   queuedPrompts: PromptItem[];
   chatHistory: ChatMessage[];
   lastModified: number;
+  previousContent?: string;
+  currentContent?: string;
+  diffs?: DiffRange[];
 }
 
 export interface PollFeedbackResponse {

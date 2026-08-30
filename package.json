@@ -13,6 +13,7 @@
     "README.md"
   ],
   "scripts": {
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test && npm run build",
     "build": "node --import tsx scripts/build.ts",
     "start": "node dist/cli.mjs",
     "test": "vitest run",
@@ -38,6 +39,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "chokidar": "^4.0.3",
     "cross-spawn": "^7.0.6",
     "katex": "^0.16.21",
