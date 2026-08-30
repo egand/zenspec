@@ -21,33 +21,103 @@
           <span class="zen-title">Zen AXI</span>
           <span class="zen-doc-badge" id="zen-doc-type">MD</span>
         </div>
-        <div class="zen-file-info" id="zen-file-name">Loading document...</div>
+
+        <!-- Target File & Workspace Dropdown -->
+        <div class="zen-file-selector-wrapper">
+          <select
+            id="zen-workspace-select"
+            class="zen-workspace-select"
+            style="display: none"
+          ></select>
+          <div class="zen-file-info" id="zen-file-name">Loading document...</div>
+        </div>
+
+        <!-- Live Agent Progress Status Banner -->
+        <div class="zen-live-progress" id="zen-live-progress" style="display: none">
+          <span class="zen-progress-spinner"></span>
+          <span class="zen-progress-text" id="zen-progress-step">Executing step...</span>
+        </div>
+
         <div class="zen-topbar-actions">
+          <!-- Diff Toggle Button -->
+          <button
+            type="button"
+            class="zen-icon-btn"
+            id="zen-diff-toggle"
+            title="Toggle Change Diffs"
+            style="display: none"
+          >
+            ⚡ <span id="zen-diff-count">0</span> diffs
+          </button>
+
+          <!-- Agent Presence Chip -->
           <div class="zen-presence-chip" id="zen-presence">
             <span class="zen-presence-dot"></span>
             <span class="zen-presence-text">Waiting for agent</span>
           </div>
-          <button type="button" class="zen-icon-btn" id="zen-theme-toggle" title="Toggle Theme">
+
+          <!-- Shortcuts Help Button -->
+          <button
+            type="button"
+            class="zen-icon-btn"
+            id="zen-shortcuts-btn"
+            title="Keyboard Shortcuts (?)"
+          >
+            ⌨️
+          </button>
+
+          <!-- Theme Toggle Button -->
+          <button type="button" class="zen-icon-btn" id="zen-theme-toggle" title="Toggle Theme (t)">
             🌓
           </button>
+
+          <!-- End Session Button -->
           <button type="button" class="zen-btn-sm" id="zen-end-btn">End Session</button>
         </div>
       </header>
 
       <!-- Main Workspace Area -->
       <div class="zen-workspace">
+        <!-- Left Sidebar: Table of Contents & Outline -->
+        <aside class="zen-toc-panel" id="zen-toc-panel">
+          <div class="zen-toc-header">
+            <h4>📑 Outline</h4>
+            <span class="zen-read-time" id="zen-read-time">~1 min</span>
+          </div>
+          <div class="zen-toc-list" id="zen-toc-list">
+            <div class="zen-empty-toc">No headings found</div>
+          </div>
+        </aside>
+
         <!-- Document Canvas -->
-        <main class="zen-canvas">
+        <main class="zen-canvas" id="zen-canvas">
           <div class="zen-document-container" id="zen-document-view">
             <div class="zen-loading">Loading and rendering document...</div>
           </div>
         </main>
 
-        <!-- Sidebar Conversation & Task Panel -->
+        <!-- Right Sidebar: Conversation & Feedback Queue -->
         <aside class="zen-sidebar" id="zen-sidebar">
           <div class="zen-sidebar-header">
-            <h3>💬 Feedback & Queue (<span id="zen-queue-count">0</span>)</h3>
-            <button type="button" class="zen-close-sidebar-btn" id="zen-toggle-sidebar">✕</button>
+            <h3>💬 Queue (<span id="zen-queue-count">0</span>)</h3>
+            <div class="zen-sidebar-header-actions">
+              <button
+                type="button"
+                class="zen-icon-btn-sm"
+                id="zen-copy-prompt-btn"
+                title="Copy all queued feedback as prompt for web chat"
+              >
+                📋 Copy Prompt
+              </button>
+              <button
+                type="button"
+                class="zen-close-sidebar-btn"
+                id="zen-toggle-sidebar"
+                title="Close sidebar (b)"
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
           <!-- Quick Action Directive Chips -->
@@ -61,7 +131,7 @@
           <!-- Queued Prompts List -->
           <div class="zen-queue-list" id="zen-queue-list">
             <div class="zen-empty-queue">
-              Highlight text or click an element to queue feedback for the agent.
+              Highlight text to comment or suggest edits, or answer interactive decision cards.
             </div>
           </div>
 
@@ -72,7 +142,7 @@
           <div class="zen-composer">
             <textarea
               id="zen-composer-input"
-              placeholder="Type a general note or question for the agent... (Enter to queue)"
+              placeholder="Type a note or question for the agent... (Enter to queue, Cmd+Enter to send)"
               rows="2"
             ></textarea>
             <div class="zen-composer-actions">
@@ -87,54 +157,114 @@
         </aside>
       </div>
 
-      <!-- Floating Selection Pill -->
-      <button type="button" id="zen-floating-pill" class="zen-floating-pill" style="display: none">
-        💬 Add Comment
-      </button>
+      <!-- Floating Selection Pill (Comment & Suggestion Buttons) -->
+      <div id="zen-floating-pill" class="zen-floating-pill" style="display: none">
+        <button type="button" class="zen-pill-action" id="zen-pill-comment">💬 Comment</button>
+        <div class="zen-pill-divider"></div>
+        <button type="button" class="zen-pill-action" id="zen-pill-suggest">✏️ Suggest Edit</button>
+      </div>
 
-      <!-- Annotation Modal Dialog -->
+      <!-- Annotation & Suggestion Modal Dialog -->
       <div id="zen-modal" class="zen-modal-overlay" style="display: none">
         <div class="zen-modal-card">
           <div class="zen-modal-header">
-            <h4>💬 Add Line-Anchored Comment</h4>
+            <div class="zen-modal-tabs">
+              <button type="button" class="zen-modal-tab active" id="zen-tab-comment">
+                💬 Add Comment
+              </button>
+              <button type="button" class="zen-modal-tab" id="zen-tab-suggest">
+                ✏️ Suggest Edit
+              </button>
+            </div>
             <span class="zen-modal-badge" id="zen-modal-line-badge">Lines 1-1</span>
           </div>
+
           <blockquote class="zen-modal-quote" id="zen-modal-quote">
             Selected text preview
           </blockquote>
-          <div class="zen-modal-chips">
-            <button
-              type="button"
-              class="zen-chip-sm"
-              data-fill="Please clarify this requirement with more detail."
-            >
-              Clarify
-            </button>
-            <button
-              type="button"
-              class="zen-chip-sm"
-              data-fill="Consider edge cases and failure modes here."
-            >
-              Edge Cases
-            </button>
-            <button
-              type="button"
-              class="zen-chip-sm"
-              data-fill="Can we simplify or make this more concise?"
-            >
-              Simplify
-            </button>
+
+          <!-- Comment Mode Input -->
+          <div id="zen-modal-comment-mode">
+            <div class="zen-modal-chips">
+              <button
+                type="button"
+                class="zen-chip-sm"
+                data-fill="Please clarify this requirement with more detail."
+              >
+                Clarify
+              </button>
+              <button
+                type="button"
+                class="zen-chip-sm"
+                data-fill="Consider edge cases and failure modes here."
+              >
+                Edge Cases
+              </button>
+              <button
+                type="button"
+                class="zen-chip-sm"
+                data-fill="Can we simplify or make this more concise?"
+              >
+                Simplify
+              </button>
+            </div>
+            <textarea
+              id="zen-modal-input"
+              placeholder="What should the agent change or explain here?"
+              rows="4"
+            ></textarea>
           </div>
-          <textarea
-            id="zen-modal-input"
-            placeholder="What should the agent change or explain here?"
-            rows="4"
-          ></textarea>
+
+          <!-- Suggestion Mode Input -->
+          <div id="zen-modal-suggest-mode" style="display: none">
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.4rem">
+              Proposed Replacement:
+            </div>
+            <textarea
+              id="zen-modal-suggest-input"
+              placeholder="Type proposed exact replacement text here..."
+              rows="4"
+            ></textarea>
+          </div>
+
           <div class="zen-modal-actions">
-            <button type="button" class="zen-btn-secondary" id="zen-modal-cancel">Cancel</button>
+            <button type="button" class="zen-btn-secondary" id="zen-modal-cancel">
+              Cancel (Esc)
+            </button>
             <button type="button" class="zen-btn-primary" id="zen-modal-submit">
               Queue Feedback
             </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Keyboard Shortcuts Cheatsheet Modal -->
+      <div id="zen-shortcuts-modal" class="zen-modal-overlay" style="display: none">
+        <div class="zen-modal-card">
+          <div class="zen-modal-header">
+            <h4>⌨️ Keyboard Shortcuts</h4>
+            <button type="button" class="zen-close-sidebar-btn" id="zen-close-shortcuts">✕</button>
+          </div>
+          <div class="zen-shortcuts-grid">
+            <div class="zen-shortcut-row">
+              <kbd>Cmd</kbd>+<kbd>Enter</kbd> / <kbd>Ctrl</kbd>+<kbd>Enter</kbd
+              ><span>Send queued feedback to agent</span>
+            </div>
+            <div class="zen-shortcut-row">
+              <kbd>c</kbd><span>Add comment on selected text</span>
+            </div>
+            <div class="zen-shortcut-row">
+              <kbd>s</kbd><span>Suggest edit on selected text</span>
+            </div>
+            <div class="zen-shortcut-row">
+              <kbd>j</kbd> / <kbd>k</kbd><span>Jump between document headings</span>
+            </div>
+            <div class="zen-shortcut-row"><kbd>t</kbd><span>Toggle dark / light theme</span></div>
+            <div class="zen-shortcut-row">
+              <kbd>b</kbd><span>Toggle right feedback sidebar</span>
+            </div>
+            <div class="zen-shortcut-row"><kbd>?</kbd><span>Open keyboard shortcuts</span></div>
+            <div class="zen-shortcut-row"><kbd>Esc</kbd><span>Dismiss open modals</span></div>
           </div>
         </div>
       </div>
