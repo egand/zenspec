@@ -32,4 +32,50 @@ describe("CLI Export Command", () => {
       if (fs.existsSync(outFile)) fs.unlinkSync(outFile);
     }
   });
+
+  it("prints version on --version", () => {
+    const output = execSync("node --import tsx src/cli.ts --version", {
+      cwd: path.resolve(__dirname, ".."),
+      encoding: "utf8",
+    });
+    expect(output).toContain("zen-axi v0.1.0");
+  });
+
+  it("prints help on --help", () => {
+    const output = execSync("node --import tsx src/cli.ts --help", {
+      cwd: path.resolve(__dirname, ".."),
+      encoding: "utf8",
+    });
+    expect(output).toContain("Zen AXI");
+    expect(output).toContain("zen-axi poll");
+    expect(output).toContain("zen-axi progress");
+    expect(output).toContain("zen-axi adr");
+    expect(output).toContain("zen-axi mcp");
+  });
+
+  it("generates an ADR file via CLI adr command", () => {
+    const testFile = path.join(os.tmpdir(), `zen-adr-cli-${Date.now()}.md`);
+    const outAdr = path.join(os.tmpdir(), `zen-adr-cli-${Date.now()}.adr.md`);
+
+    fs.writeFileSync(
+      testFile,
+      "# CLI Test Spec\n\n> [!QUESTION] Choose framework\n> - [x] Fastify\n> - [ ] Express\n",
+      "utf8",
+    );
+
+    try {
+      execSync(`node --import tsx src/cli.ts adr "${testFile}" --out "${outAdr}"`, {
+        cwd: path.resolve(__dirname, ".."),
+        stdio: "pipe",
+      });
+
+      expect(fs.existsSync(outAdr)).toBe(true);
+      const adrContent = fs.readFileSync(outAdr, "utf8");
+      expect(adrContent).toContain("# ADR-0001: CLI Test Spec");
+      expect(adrContent).toContain("Fastify");
+    } finally {
+      if (fs.existsSync(testFile)) fs.unlinkSync(testFile);
+      if (fs.existsSync(outAdr)) fs.unlinkSync(outAdr);
+    }
+  });
 });

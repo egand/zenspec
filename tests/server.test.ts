@@ -88,6 +88,29 @@ describe("ZenServer HTTP & API Endpoints", () => {
     expect(doc.chatHistory.some((m: any) => m.text.includes("Added input validation"))).toBe(true);
   });
 
+  it("accepts live telemetry progress updates via POST /api/:key/progress", async () => {
+    const postRes: any = await postJson(`http://127.0.0.1:${port}/api/${testKey}/progress`, {
+      step: "Refactoring database migrations",
+      status: "running",
+    });
+    expect(postRes.success).toBe(true);
+
+    const doc: any = await fetchJson(`http://127.0.0.1:${port}/api/${testKey}/document`);
+    expect(doc.activeProgress?.step).toBe("Refactoring database migrations");
+  });
+
+  it("serves workspace documents via GET /api/:key/workspace", async () => {
+    const data: any = await fetchJson(`http://127.0.0.1:${port}/api/${testKey}/workspace`);
+    expect(data.workspaceRoot).toBeDefined();
+    expect(Array.isArray(data.files)).toBe(true);
+  });
+
+  it("generates Architecture Decision Records via GET /api/:key/adr", async () => {
+    const data: any = await fetchJson(`http://127.0.0.1:${port}/api/${testKey}/adr`);
+    expect(data.adr).toContain("# ADR-0001: Test Spec");
+    expect(data.adr).toContain("## Considered Options & Decisions");
+  });
+
   it("marks session ended via POST /api/:key/end", async () => {
     const endRes: any = await postJson(`http://127.0.0.1:${port}/api/${testKey}/end`, {
       endedBy: "agent",
@@ -98,7 +121,50 @@ describe("ZenServer HTTP & API Endpoints", () => {
     expect(pollRes.status).toBe("ended");
     expect(pollRes.endedBy).toBe("agent");
   });
+
+  it("returns 404 for non-existent session key on document and ADR routes", async () => {
+    const docRes = await fetchStatus(`http://127.0.0.1:${port}/api/invalidkey99/document`);
+    expect(docRes).toBe(404);
+
+    const adrRes = await fetchStatus(`http://127.0.0.1:${port}/api/invalidkey99/adr`);
+    expect(adrRes).toBe(404);
+  });
+
+  it("returns 400 for /api/poll when key query parameter is missing", async () => {
+    const status = await fetchStatus(`http://127.0.0.1:${port}/api/poll`);
+    expect(status).toBe(400);
+  });
+
+  it("serves HTML review canvas at /session/:key", async () => {
+    const res = await fetchRaw(`http://127.0.0.1:${port}/session/${testKey}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("<!doctype html>");
+    expect(res.body).toContain("Zen AXI Reviewer");
+  });
 });
+
+async function fetchStatus(url: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    http
+      .get(url, (res) => {
+        res.resume();
+        resolve(res.statusCode || 500);
+      })
+      .on("error", reject);
+  });
+}
+
+async function fetchRaw(url: string): Promise<{ statusCode: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    http
+      .get(url, (res) => {
+        let body = "";
+        res.on("data", (chunk) => (body += chunk));
+        res.on("end", () => resolve({ statusCode: res.statusCode || 500, body }));
+      })
+      .on("error", reject);
+  });
+}
 
 async function fetchJson(url: string): Promise<any> {
   return new Promise((resolve, reject) => {

@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { SessionStore, sessionKey } from "../src/session-store.js";
+import path from "node:path";
+import os from "node:os";
+import fs from "node:fs";
+import {
+  SessionStore,
+  sessionKey,
+  computeLineDiff,
+  scanWorkspaceDocuments,
+} from "../src/session-store.js";
 import { PromptItem, PollResponse } from "../src/types.js";
 
 describe("SessionStore & Long-Polling Coordinator", () => {
@@ -104,6 +112,26 @@ describe("SessionStore & Long-Polling Coordinator", () => {
     expect(secondResponse).toBeNull();
   });
 
+  it("removes registered poll waiter correctly", () => {
+    const session = store.getOrCreateSession("/fake/path/removal.md");
+    let called = false;
+    const waiter = () => {
+      called = true;
+    };
+
+    store.registerPollWaiter(session.key, waiter);
+    store.removePollWaiter(session.key, waiter);
+
+    store.queuePrompt(session.key, {
+      id: "p-rm",
+      tag: "chat",
+      text: "Unseen",
+      createdAt: new Date().toISOString(),
+    });
+
+    expect(called).toBe(false);
+  });
+
   it("manages agent chat history and presence transitions", () => {
     const session = store.getOrCreateSession(`/fake/path/chat-${Date.now()}.md`);
 
@@ -113,5 +141,80 @@ describe("SessionStore & Long-Polling Coordinator", () => {
     const msg = store.addChatMessage(session.key, "agent", "Updated lines 14-16 with feedback.");
     expect(msg.sender).toBe("agent");
     expect(session.chatHistory.length).toBe(1);
+  });
+
+  describe("computeLineDiff", () => {
+    it.each([
+      {
+        name: "identical text",
+        oldText: "Line 1\nLine 2",
+        newText: "Line 1\nLine 2",
+        expectedDiffs: 0,
+      },
+      {
+        name: "empty old text",
+        oldText: "",
+        newText: "Line 1\nLine 2",
+        expectedDiffs: 0,
+      },
+      {
+        name: "middle line modification",
+        oldText: "Line 1\nLine 2\nLine 3",
+        newText: "Line 1\nLine 2 modified\nLine 3",
+        expectedDiffs: 1,
+      },
+      {
+        name: "trailing addition",
+        oldText: "Line 1\nLine 2",
+        newText: "Line 1\nLine 2\nLine 3 added",
+        expectedDiffs: 1,
+      },
+    ])("computes diff for $name", ({ oldText, newText, expectedDiffs }) => {
+      const diffs = computeLineDiff(oldText, newText);
+      expect(diffs.length).toBe(expectedDiffs);
+    });
+  });
+
+  it("scans workspace directory and filters Markdown and HTML files", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "zen-scan-test-"));
+    try {
+      fs.writeFileSync(path.join(tempDir, "README.md"), "# Root");
+      fs.writeFileSync(path.join(tempDir, "index.html"), "<h1>Home</h1>");
+      fs.writeFileSync(path.join(tempDir, "ignore.txt"), "Ignore me");
+
+      const subDir = path.join(tempDir, "sub");
+      fs.mkdirSync(subDir);
+      fs.writeFileSync(path.join(subDir, "spec.markdown"), "## Spec");
+
+      const nodeModules = path.join(tempDir, "node_modules");
+      fs.mkdirSync(nodeModules);
+      fs.writeFileSync(path.join(nodeModules, "pkg.md"), "Should be skipped");
+
+      const docs = scanWorkspaceDocuments(tempDir);
+      expect(docs.length).toBe(3);
+      const relPaths = docs.map((d) => d.relPath);
+      expect(relPaths).toContain("README.md");
+      expect(relPaths).toContain("index.html");
+      expect(relPaths).toContain(path.join("sub", "spec.markdown"));
+      expect(relPaths).not.toContain("ignore.txt");
+      expect(relPaths).not.toContain(path.join("node_modules", "pkg.md"));
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("tracks and broadcasts agent telemetry progress updates", () => {
+    const session = store.getOrCreateSession(`/fake/path/progress-${Date.now()}.md`);
+
+    store.setProgress(session.key, {
+      id: "p-1",
+      timestamp: new Date().toISOString(),
+      step: "Compiling TypeScript",
+      status: "running",
+      details: "Running esbuild bundle",
+    });
+
+    expect(session.activeProgress?.step).toBe("Compiling TypeScript");
+    expect(session.activeProgress?.status).toBe("running");
   });
 });
