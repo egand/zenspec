@@ -104,82 +104,70 @@ async function loadDocument() {
       }
 
       // Attach Interactive Question Option Card Listeners
-      container.querySelectorAll(".zen-option-card").forEach((card: any) => {
-        card.addEventListener("click", () => {
-          const qContainer = card.closest(".zen-callout-question");
-          const radio = card.querySelector('input[type="radio"]') as HTMLInputElement;
-          const questionId = qContainer?.dataset.questionId || "q";
-          const title =
-            qContainer?.querySelector(".zen-callout-title")?.textContent?.replace(/^❓\s*/, "") ||
-            "Question";
-          const optionValue =
-            card.dataset.value || card.querySelector(".zen-option-text")?.textContent?.trim() || "";
+      container.querySelectorAll(".zen-callout-question").forEach((qContainer: any) => {
+        const questionId = qContainer.dataset.questionId || "q";
+        const title =
+          qContainer.querySelector(".zen-callout-title")?.textContent?.replace(/^❓\s*/, "") ||
+          "Question";
+        const node = qContainer.closest("[data-line-start]") || qContainer;
+        const line = node ? parseInt(node.getAttribute("data-line-start") || "1", 10) : 1;
 
-          // Check this radio
+        const selectOption = (card: HTMLElement, value: string) => {
+          const radio = card.querySelector('input[type="radio"]') as HTMLInputElement;
           if (radio) radio.checked = true;
 
-          // Update UI selection state on sibling cards
-          if (qContainer) {
-            qContainer.querySelectorAll(".zen-option-card").forEach((c: any) => {
-              c.classList.remove("selected");
-            });
-            card.classList.add("selected");
+          qContainer.querySelectorAll(".zen-option-card").forEach((c: any) => {
+            c.classList.remove("selected");
+          });
+          card.classList.add("selected");
 
-            const statusEl = qContainer.querySelector(`#status-${questionId}`);
-            if (statusEl) {
-              statusEl.textContent = `✓ Selected: ${optionValue}`;
-            }
-          }
+          if (!value.trim()) return;
 
-          // Read line number
-          const node = qContainer?.closest("[data-line-start]") || qContainer;
-          const line = node ? parseInt(node.getAttribute("data-line-start") || "1", 10) : 1;
-
-          // Queue / Replace this question's answer in-place
           queueOrReplacePrompt({
             id: `q-${questionId}`,
             queueKey: `question-${questionId}`,
             tag: "question",
-            text: `Answer to "${title}": ${optionValue}`,
+            text: `Answer to "${title}": ${value}`,
             target: {
               type: "markdown-range",
               startLine: line,
               endLine: line,
-              selectedText: optionValue,
+              selectedText: value,
             },
             createdAt: new Date().toISOString(),
           });
 
-          showToast(`✓ Selected: "${optionValue}"`);
-        });
-      });
+          showToast(`✓ Selected: "${value}"`);
+        };
 
-      // Attach Question Confirm Buttons
-      container.querySelectorAll(".zen-question-confirm-btn").forEach((btn: any) => {
-        btn.addEventListener("click", (e: any) => {
-          e.stopPropagation();
-          const qContainer = btn.closest(".zen-callout-question");
-          const selectedCard = qContainer?.querySelector(
-            ".zen-option-card.selected",
-          ) as HTMLElement;
+        // Standard option cards
+        qContainer
+          .querySelectorAll(".zen-option-card:not(.zen-option-custom)")
+          .forEach((card: any) => {
+            card.addEventListener("click", () => {
+              const val =
+                card.dataset.value ||
+                card.querySelector(".zen-option-text")?.textContent?.trim() ||
+                "";
+              selectOption(card, val);
+            });
+          });
 
-          if (!selectedCard) {
-            // Auto-select first option if none is selected
-            const firstCard = qContainer?.querySelector(".zen-option-card") as HTMLElement;
-            if (firstCard) {
-              firstCard.click();
-              return;
-            }
-            showToast("Please select an option first.");
-            return;
-          }
+        // Custom write-in option card
+        const customCard = qContainer.querySelector(".zen-option-custom") as HTMLElement;
+        const customInput = qContainer.querySelector(
+          ".zen-option-custom-input",
+        ) as HTMLInputElement;
+        if (customCard && customInput) {
+          customCard.addEventListener("click", () => {
+            customInput.focus();
+            selectOption(customCard, customInput.value);
+          });
 
-          const optionValue =
-            selectedCard.dataset.value ||
-            selectedCard.querySelector(".zen-option-text")?.textContent?.trim() ||
-            "";
-          showToast(`✓ Confirmed answer: "${optionValue}"`);
-        });
+          customInput.addEventListener("input", () => {
+            selectOption(customCard, customInput.value);
+          });
+        }
       });
 
       // Attach Diagram Comment Buttons

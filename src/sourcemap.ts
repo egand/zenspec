@@ -149,15 +149,15 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
           const questionTitle = questionMatch[1];
           const questionId = `q-${range?.startLine || Math.floor(Math.random() * 1000)}`;
 
-          // Transform checkboxes into clean radio option cards
+          // Transform task list items into clean radio option cards
           const optionRegex =
-            /<li[^>]*>\s*<label[^>]*>\s*<input[^>]*?(checked)?[^>]*?>\s*<span>([\s\S]*?)<\/span>\s*<\/label>\s*<\/li>/gi;
+            /<li[^>]*>\s*<label[^>]*>\s*<input[^>]*?>\s*<span>([\s\S]*?)<\/span>\s*<\/label>\s*<\/li>/gi;
           let optionsHtml = "";
           let match: RegExpExecArray | null;
 
           while ((match = optionRegex.exec(rest)) !== null) {
-            const isChecked = Boolean(match[1]);
-            const optionContent = match[2].replace(/<\/?p[^>]*>/g, "").trim();
+            const isChecked = /\bchecked\b/i.test(match[0]);
+            const optionContent = match[1].replace(/<\/?p[^>]*>/g, "").trim();
             const cleanValue = optionContent.replace(/<[^>]+>/g, "").trim();
 
             optionsHtml += `
@@ -167,18 +167,23 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
               </div>`;
           }
 
-          if (!optionsHtml) {
-            // Fallback if not matching task list format
-            optionsHtml = rest;
-          }
+          // Append a Custom / Write-in option card
+          optionsHtml += `
+            <div class="zen-option-card zen-option-custom" data-custom="true">
+              <input type="radio" name="${questionId}" class="zen-option-radio" />
+              <input type="text" class="zen-option-custom-input" placeholder="Other: Type custom answer..." />
+            </div>`;
+
+          // Check if there are trailing decision notes or explanations in the blockquote body
+          const nonListRest = rest.replace(/<ul[^>]*>[\s\S]*?<\/ul>/gi, "").trim();
+          const decisionSection = nonListRest
+            ? `<div class="zen-question-decision">${nonListRest}</div>`
+            : "";
 
           return `<div ${getAttr(range, "zen-callout zen-callout-question")} data-question-id="${questionId}">
             <div class="zen-callout-title">❓ ${questionTitle}</div>
             <div class="zen-question-options">${optionsHtml}</div>
-            <div class="zen-question-footer">
-              <span class="zen-question-status" id="status-${questionId}"></span>
-              <button type="button" class="zen-question-confirm-btn" data-question-id="${questionId}" data-title="${questionTitle.replace(/"/g, "&quot;")}">✓ Confirm Answer</button>
-            </div>
+            ${decisionSection}
           </div>\n`;
         }
 

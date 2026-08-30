@@ -95,6 +95,6 @@ graph TD;
     expect(html).toContain("zen-option-card");
     expect(html).toContain("PostgreSQL");
     expect(html).toContain("SQLite");
-    expect(html).toContain("zen-question-confirm-btn");
+    expect(html).toContain("zen-option-custom");
   });
 });

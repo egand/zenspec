@@ -109,10 +109,10 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
   });
 
   it("interactively selects question option cards and queues feedback", async () => {
-    // Wait for option cards to be ready
+    // Wait for option cards to be ready (2 predefined + 1 custom write-in)
     await page.waitForSelector(".zen-option-card", { timeout: 10000 });
     const optionCards = await page.$$(".zen-option-card");
-    expect(optionCards.length).toBe(2);
+    expect(optionCards.length).toBe(3);
 
     // Click on the second option: SQLite Embedded
     await optionCards[1].click();
