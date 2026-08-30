@@ -1,0 +1,63 @@
+{
+  "name": "zen-axi",
+  "version": "0.1.0",
+  "description": "Minimalist, token-efficient Agent Experience Interface (AXI) and browser reviewer for Markdown & HTML artifacts",
+  "type": "module",
+  "bin": {
+    "zen-axi": "dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "skills/zen",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node --import tsx scripts/build.ts",
+    "start": "node dist/cli.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests scripts",
+    "lint:fix": "eslint src tests scripts --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepack": "pnpm run build"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "keywords": [
+    "axi",
+    "agent",
+    "cli",
+    "markdown",
+    "html",
+    "review",
+    "collaboration"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "cross-spawn": "^7.0.6",
+    "katex": "^0.16.21",
+    "marked": "^15.0.7",
+    "mermaid": "^11.4.1",
+    "open": "^10.1.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.21.0",
+    "@types/cross-spawn": "^6.0.6",
+    "@types/katex": "^0.16.7",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.21.0",
+    "eslint-config-prettier": "^10.0.1",
+    "prettier": "^3.5.2",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.25.0",
+    "vitest": "^3.0.7"
+  }
+}

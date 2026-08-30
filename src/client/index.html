@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Zen AXI Reviewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css" />
+    <link rel="stylesheet" href="/client/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/markmap-autoloader@0.17.2"></script>
+  </head>
+  <body>
+    <div id="zen-app">
+      <!-- Top Header Bar -->
+      <header class="zen-topbar">
+        <div class="zen-brand">
+          <span class="zen-logo">🧘</span>
+          <span class="zen-title">Zen AXI</span>
+          <span class="zen-doc-badge" id="zen-doc-type">MD</span>
+        </div>
+        <div class="zen-file-info" id="zen-file-name">Loading document...</div>
+        <div class="zen-topbar-actions">
+          <div class="zen-presence-chip" id="zen-presence">
+            <span class="zen-presence-dot"></span>
+            <span class="zen-presence-text">Waiting for agent</span>
+          </div>
+          <button type="button" class="zen-icon-btn" id="zen-theme-toggle" title="Toggle Theme">
+            🌓
+          </button>
+          <button type="button" class="zen-btn-sm" id="zen-end-btn">End Session</button>
+        </div>
+      </header>
+
+      <!-- Main Workspace Area -->
+      <div class="zen-workspace">
+        <!-- Document Canvas -->
+        <main class="zen-canvas">
+          <div class="zen-document-container" id="zen-document-view">
+            <div class="zen-loading">Loading and rendering document...</div>
+          </div>
+        </main>
+
+        <!-- Sidebar Conversation & Task Panel -->
+        <aside class="zen-sidebar" id="zen-sidebar">
+          <div class="zen-sidebar-header">
+            <h3>💬 Feedback & Queue (<span id="zen-queue-count">0</span>)</h3>
+            <button type="button" class="zen-close-sidebar-btn" id="zen-toggle-sidebar">✕</button>
+          </div>
+
+          <!-- Quick Action Directive Chips -->
+          <div class="zen-action-chips">
+            <button type="button" class="zen-chip" data-action="diagram">⚡ Add Diagram</button>
+            <button type="button" class="zen-chip" data-action="concise">✂️ Make Concise</button>
+            <button type="button" class="zen-chip" data-action="testcases">🧪 Add Tests</button>
+            <button type="button" class="zen-chip" data-action="table">📐 Turn to Table</button>
+          </div>
+
+          <!-- Queued Prompts List -->
+          <div class="zen-queue-list" id="zen-queue-list">
+            <div class="zen-empty-queue">
+              Highlight text or click an element to queue feedback for the agent.
+            </div>
+          </div>
+
+          <!-- Conversation Stream -->
+          <div class="zen-chat-stream" id="zen-chat-stream"></div>
+
+          <!-- Bottom Sticky Composer -->
+          <div class="zen-composer">
+            <textarea
+              id="zen-composer-input"
+              placeholder="Type a general note or question for the agent... (Enter to queue)"
+              rows="2"
+            ></textarea>
+            <div class="zen-composer-actions">
+              <button type="button" class="zen-btn-secondary" id="zen-send-end-btn">
+                Send & End
+              </button>
+              <button type="button" class="zen-btn-primary" id="zen-send-btn">
+                🚀 Send to Agent
+              </button>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <!-- Floating Selection Pill -->
+      <button type="button" id="zen-floating-pill" class="zen-floating-pill" style="display: none">
+        💬 Add Comment
+      </button>
+
+      <!-- Annotation Modal Dialog -->
+      <div id="zen-modal" class="zen-modal-overlay" style="display: none">
+        <div class="zen-modal-card">
+          <div class="zen-modal-header">
+            <h4>💬 Add Line-Anchored Comment</h4>
+            <span class="zen-modal-badge" id="zen-modal-line-badge">Lines 1-1</span>
+          </div>
+          <blockquote class="zen-modal-quote" id="zen-modal-quote">
+            Selected text preview
+          </blockquote>
+          <div class="zen-modal-chips">
+            <button
+              type="button"
+              class="zen-chip-sm"
+              data-fill="Please clarify this requirement with more detail."
+            >
+              Clarify
+            </button>
+            <button
+              type="button"
+              class="zen-chip-sm"
+              data-fill="Consider edge cases and failure modes here."
+            >
+              Edge Cases
+            </button>
+            <button
+              type="button"
+              class="zen-chip-sm"
+              data-fill="Can we simplify or make this more concise?"
+            >
+              Simplify
+            </button>
+          </div>
+          <textarea
+            id="zen-modal-input"
+            placeholder="What should the agent change or explain here?"
+            rows="4"
+          ></textarea>
+          <div class="zen-modal-actions">
+            <button type="button" class="zen-btn-secondary" id="zen-modal-cancel">Cancel</button>
+            <button type="button" class="zen-btn-primary" id="zen-modal-submit">
+              Queue Feedback
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toast Notification -->
+      <div id="zen-toast" class="zen-toast"></div>
+    </div>
+
+    <script type="module" src="/client/app.js"></script>
+  </body>
+</html>
