@@ -17,29 +17,58 @@ Zen opens Markdown or HTML documents in a browser for interactive line-level ann
 
 1. **Write Documentation**:
    - Write the document directly to the project's documentation directory: `docs/plans/<topic>.md`.
-   - Format with standard GitHub-flavored Markdown, KaTeX math (`$...$`), Mermaid diagrams (` ```mermaid `), or interactive question callouts (`> [!QUESTION]`).
+   - Format with standard GitHub-flavored Markdown, YAML frontmatter, KaTeX math (`$...$`), Mermaid diagrams (` ```mermaid `), or interactive question callouts (`> [!QUESTION]`, `> [!QUESTION:MULTI]`, `> [!QUESTION:RATING]`).
 
 2. **Open the Review Session**:
 
    ```bash
    npx zen-axi docs/plans/<topic>.md
+   # Or for remote/container environments:
+   npx zen-axi docs/plans/<topic>.md --share
    ```
 
-3. **Wait for Human Feedback**:
+3. **Stream Execution Telemetry (Optional)**:
+
+   ```bash
+   npx zen-axi progress docs/plans/<topic>.md --step "Running test suite" --status running
+   ```
+
+4. **Wait for Human Feedback**:
 
    ```bash
    npx zen-axi poll docs/plans/<topic>.md
    ```
 
-4. **Apply Surgical Line Updates**:
-   - The poll command returns `{ startLine, endLine, selectedText, feedback }`.
+5. **Apply Surgical Line Updates**:
+   - The poll command returns `{ startLine, endLine, selectedText, replacementText, feedback }`.
    - Use `replace_file_content` to surgically update the exact lines in `docs/plans/<topic>.md`.
    - Reply via CLI: `zen-axi poll docs/plans/<topic>.md --agent-reply "Updated Section 2 with feedback"`.
    - **Terminal Conciseness**: Keep terminal messages short and direct (1-2 sentences with links to changed lines). Do NOT duplicate or re-summarize what is already visible in the browser canvas to avoid wasting tokens.
 
-5. **Conclude Session**:
+6. **Generate Architecture Decision Record (ADR)**:
+
+   ```bash
+   npx zen-axi adr docs/plans/<topic>.md
+   ```
+
+7. **Conclude Session**:
    - When the user is satisfied, run:
    ```bash
    npx zen-axi end docs/plans/<topic>.md
    ```
    - The `.md` file remains in `docs/plans/` ready for `git commit` as permanent project documentation.
+
+## MCP Protocol Integration
+
+For LLM harnesses with Model Context Protocol (MCP) support:
+
+```json
+{
+  "mcpServers": {
+    "zen-axi": {
+      "command": "zen-axi",
+      "args": ["mcp"]
+    }
+  }
+}
+```

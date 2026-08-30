@@ -42,15 +42,62 @@ npm install -g zen-axi
 
 ## 🛠️ CLI Reference
 
-| Command                         | Description                                                     |
-| :------------------------------ | :-------------------------------------------------------------- |
-| `zen-axi <file.md\|file.html>`  | Start background daemon and open interactive review in browser  |
-| `zen-axi poll <file>`           | Long-poll until human submits feedback or ends session          |
-| `zen-axi reply <file> -m "..."` | Push agent progress/chat message to the browser conversation    |
-| `zen-axi end <file>`            | Conclude review session as agent                                |
-| `zen-axi export <file>`         | Export standalone portable HTML with inlined styles and scripts |
-| `zen-axi status`                | List active review sessions                                     |
-| `zen-axi stop`                  | Stop local background daemon                                    |
+| Command                          | Description                                                        |
+| :------------------------------- | :----------------------------------------------------------------- |
+| `zen-axi <file\|dir>`            | Start daemon and open interactive review session in browser        |
+| `zen-axi poll <file>`            | Long-poll until human submits feedback or ends session             |
+| `zen-axi reply <file> -m "..."`  | Push agent progress/chat message to the browser conversation       |
+| `zen-axi progress <file> --step` | Stream live execution status (testing, patching) to browser topbar |
+| `zen-axi adr <file> [--out]`     | Generate MADR Architecture Decision Record from review decisions   |
+| `zen-axi mcp`                    | Run native Model Context Protocol (MCP) server over stdio          |
+| `zen-axi end <file>`             | Conclude review session as agent                                   |
+| `zen-axi export <file>`          | Export standalone portable HTML with inlined styles and scripts    |
+| `zen-axi status`                 | List active review sessions                                        |
+| `zen-axi stop`                   | Stop local background daemon                                       |
+
+### Flags
+
+- `--share`: Launch secure remote sharing tunnel for GitHub Codespaces, remote containers, or LAN collaboration.
+- `--no-open`: Register and serve session without launching the default browser.
+- `--port <number>`: Specify custom port (default: `4388`).
+- `--agent-reply "<msg>"`: Attach agent reply when polling.
+
+---
+
+## ⚡ Highlights & Key Features
+
+### 1. Ghost Diffs & Change Tracking
+
+When an agent edits the reviewed Markdown file on disk, `zen-axi` computes line diffs and renders clean visual gutter diff indicators directly in the browser canvas.
+
+### 2. Suggest Edit Mode
+
+Reviewers can highlight any text and click **Suggest Edit** to provide proposed replacement text. The agent receives `{ startLine, endLine, selectedText, replacementText }` for instant, one-call application via `replace_file_content`.
+
+### 3. Native Model Context Protocol (MCP) Server
+
+Integrate with Claude Desktop, Cursor, Antigravity, or Windsurf via `zen-axi mcp`:
+
+```json
+{
+  "mcpServers": {
+    "zen-axi": {
+      "command": "zen-axi",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### 4. Interactive Callouts & Ratings
+
+- Single Choice: `> [!QUESTION] Which database should we use?`
+- Multi-Select: `> [!QUESTION:MULTI] Which modules to enable?`
+- Rating Scale: `> [!QUESTION:RATING] Rate the caching strategy`
+
+### 5. Automated ADR Generator (`zen-axi adr`)
+
+Instantly turn completed review conversations and selected decision cards into standard MADR (Markdown Architectural Decision Records) in `docs/adr/`.
 
 ---
 
@@ -67,11 +114,11 @@ npm install -g zen-axi
                 ▼
 ┌────────────────────────────────┐
 │ 3. Human highlights text /     │
-│    answers interactive options │
+│    suggests edits & decisions  │
 └───────────────┬────────────────┘
                 ▼
 ┌────────────────────────────────┐
-│ 4. zen-axi poll plan.md        │ (Returns { lines: [14, 16], feedback })
+│ 4. zen-axi poll plan.md        │ (Returns { lines: [14, 16], replacementText })
 └───────────────┬────────────────┘
                 ▼
 ┌────────────────────────────────┐
@@ -98,7 +145,7 @@ npx skills add egand/zen-axi --skill zen
 npm install
 npm run build          # Compile CLI and client bundle
 npm test               # Run Vitest test suite
-npm run check          # Run full verification pipeline
+npm run check          # Run full verification pipeline (lint, typecheck, format, test, build)
 ```
 
 ---
