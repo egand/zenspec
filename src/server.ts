@@ -8,7 +8,22 @@ import { renderMarkdownWithSourceLines } from "./sourcemap.js";
 import { PollResponse, PromptItem } from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CLIENT_DIST_DIR = path.resolve(__dirname, "client");
+
+function getClientDir(): string {
+  const possiblePaths = [
+    path.resolve(__dirname, "client"),
+    path.resolve(__dirname, "../dist/client"),
+    path.resolve(__dirname, "../client"),
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(path.join(p, "app.js"))) {
+      return p;
+    }
+  }
+  return path.resolve(__dirname, "client");
+}
+
+const CLIENT_DIST_DIR = getClientDir();
 
 export interface ServerOptions {
   port?: number;

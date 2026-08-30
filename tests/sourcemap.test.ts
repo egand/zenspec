@@ -74,4 +74,27 @@ graph TD;
     expect(html).toContain("<th>Feature</th>");
     expect(html).toContain("<td>Auth</td>");
   });
+
+  it("pre-renders KaTeX math formulas with zero Markdown underscore corruption", () => {
+    const md = `The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{Tokens}_{\\text{HTML}}} \\approx 0.72$$ with inline $\\eta$.`;
+
+    const html = renderMarkdownWithSourceLines(md);
+    expect(html).toContain("katex-display");
+    expect(html).toContain("katex");
+    // Ensure no broken Markdown italics inside math
+    expect(html).not.toContain("<em>");
+  });
+
+  it("renders interactive question callouts with modern option cards", () => {
+    const md = `> [!QUESTION] Which database should we use?
+> - [x] PostgreSQL
+> - [ ] SQLite`;
+
+    const html = renderMarkdownWithSourceLines(md);
+    expect(html).toContain("zen-callout-question");
+    expect(html).toContain("zen-option-card");
+    expect(html).toContain("PostgreSQL");
+    expect(html).toContain("SQLite");
+    expect(html).toContain("zen-question-confirm-btn");
+  });
 });

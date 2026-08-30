@@ -37,14 +37,6 @@ function extractSessionKey(): string {
   return params.get("key") || "";
 }
 
-function showToast(message: string) {
-  const toast = document.getElementById("zen-toast");
-  if (!toast) return;
-  toast.textContent = message;
-  toast.classList.add("show");
-  setTimeout(() => toast.classList.remove("show"), 3000);
-}
-
 // -----------------------------------------------------------------------------
 // Document Loading and Rendering
 // -----------------------------------------------------------------------------
@@ -71,7 +63,18 @@ async function loadDocument() {
       // Initialize Mermaid diagrams
       if ((window as any).mermaid) {
         try {
-          (window as any).mermaid.initialize({ startOnLoad: false, theme: "dark" });
+          (window as any).mermaid.initialize({
+            startOnLoad: false,
+            theme: "dark",
+            themeVariables: {
+              background: "#161b22",
+              primaryColor: "#21262d",
+              primaryBorderColor: "#30363d",
+              primaryTextColor: "#f0f6fc",
+              lineColor: "#3b82f6",
+              textColor: "#f0f6fc",
+            },
+          });
           (window as any).mermaid.run({
             nodes: container.querySelectorAll(".mermaid"),
           });
@@ -80,7 +83,12 @@ async function loadDocument() {
         }
       }
 
-      // Render KaTeX Math Formulas
+      // Initialize Markmaps
+      if ((window as any).markmap) {
+        // markmap auto-renders markmap-svg elements
+      }
+
+      // Render KaTeX Math Formulas if any unrendered math remains
       if ((window as any).renderMathInElement) {
         try {
           (window as any).renderMathInElement(container, {
@@ -95,49 +103,86 @@ async function loadDocument() {
         }
       }
 
-      // Attach question confirmation handlers
-      container.querySelectorAll(".zen-question-confirm-btn").forEach((btn: any) => {
-        btn.addEventListener("click", (e: any) => {
-          e.stopPropagation();
-          const qCard = btn.closest(".zen-callout-question");
-          const questionId = btn.dataset.questionId;
-          const selectedRadio = qCard?.querySelector(
-            'input[type="radio"]:checked',
-          ) as HTMLInputElement;
+      // Attach Interactive Question Option Card Listeners
+      container.querySelectorAll(".zen-option-card").forEach((card: any) => {
+        card.addEventListener("click", () => {
+          const qContainer = card.closest(".zen-callout-question");
+          const radio = card.querySelector('input[type="radio"]') as HTMLInputElement;
+          const questionId = qContainer?.dataset.questionId || "q";
+          const title =
+            qContainer?.querySelector(".zen-callout-title")?.textContent?.replace(/^❓\s*/, "") ||
+            "Question";
+          const optionValue =
+            card.dataset.value || card.querySelector(".zen-option-text")?.textContent?.trim() || "";
 
-          if (!selectedRadio) {
-            alert("Please select one of the options first.");
-            return;
+          // Check this radio
+          if (radio) radio.checked = true;
+
+          // Update UI selection state on sibling cards
+          if (qContainer) {
+            qContainer.querySelectorAll(".zen-option-card").forEach((c: any) => {
+              c.classList.remove("selected");
+            });
+            card.classList.add("selected");
+
+            const statusEl = qContainer.querySelector(`#status-${questionId}`);
+            if (statusEl) {
+              statusEl.textContent = `✓ Selected: ${optionValue}`;
+            }
           }
 
-          const label =
-            selectedRadio.closest("li")?.textContent?.trim() ||
-            selectedRadio.value ||
-            "Selected option";
-          const questionTitle =
-            qCard?.querySelector(".zen-callout-title")?.textContent?.replace(/^❓\s*/, "") ||
-            "Question";
-          const node = qCard?.closest("[data-line-start]") || qCard;
+          // Read line number
+          const node = qContainer?.closest("[data-line-start]") || qContainer;
           const line = node ? parseInt(node.getAttribute("data-line-start") || "1", 10) : 1;
 
+          // Queue / Replace this question's answer in-place
           queueOrReplacePrompt({
             id: `q-${questionId}`,
             queueKey: `question-${questionId}`,
             tag: "question",
-            text: `Answer to "${questionTitle}": ${label}`,
+            text: `Answer to "${title}": ${optionValue}`,
             target: {
               type: "markdown-range",
               startLine: line,
               endLine: line,
-              selectedText: label,
+              selectedText: optionValue,
             },
             createdAt: new Date().toISOString(),
           });
-          showToast(`✓ Confirmed answer: "${label}"`);
+
+          showToast(`✓ Selected: "${optionValue}"`);
         });
       });
 
-      // Attach diagram comment buttons
+      // Attach Question Confirm Buttons
+      container.querySelectorAll(".zen-question-confirm-btn").forEach((btn: any) => {
+        btn.addEventListener("click", (e: any) => {
+          e.stopPropagation();
+          const qContainer = btn.closest(".zen-callout-question");
+          const selectedCard = qContainer?.querySelector(
+            ".zen-option-card.selected",
+          ) as HTMLElement;
+
+          if (!selectedCard) {
+            // Auto-select first option if none is selected
+            const firstCard = qContainer?.querySelector(".zen-option-card") as HTMLElement;
+            if (firstCard) {
+              firstCard.click();
+              return;
+            }
+            showToast("Please select an option first.");
+            return;
+          }
+
+          const optionValue =
+            selectedCard.dataset.value ||
+            selectedCard.querySelector(".zen-option-text")?.textContent?.trim() ||
+            "";
+          showToast(`✓ Confirmed answer: "${optionValue}"`);
+        });
+      });
+
+      // Attach Diagram Comment Buttons
       container.querySelectorAll(".zen-diagram-comment-btn").forEach((btn: any) => {
         btn.addEventListener("click", (e: any) => {
           e.stopPropagation();
@@ -146,7 +191,7 @@ async function loadDocument() {
           const endLine = node ? parseInt(node.getAttribute("data-line-end"), 10) : startLine;
 
           openAnnotationModal({
-            text: "Mermaid Architecture Diagram",
+            text: "Architecture Diagram",
             startLine,
             endLine,
             headingContext: "Diagram",
@@ -166,18 +211,10 @@ async function loadDocument() {
   }
 }
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
 // -----------------------------------------------------------------------------
-// SSE Stream Setup
+// Live Reload & Presence via Server-Sent Events (SSE)
 // -----------------------------------------------------------------------------
-function setupSSE() {
+function setupEventStream() {
   if (!sessionKey) return;
   const es = new EventSource(`/events/${sessionKey}`);
 
@@ -258,24 +295,47 @@ function setupSelectionListeners() {
     }
 
     const range = sel.getRangeAt(0);
-    const containerNode = range.startContainer.parentElement?.closest("[data-line-start]");
-    const startLine = containerNode
-      ? parseInt(containerNode.getAttribute("data-line-start") || "1", 10)
-      : 1;
-    const endLine = containerNode
-      ? parseInt(containerNode.getAttribute("data-line-end") || String(startLine), 10)
-      : startLine;
+    const rect = range.getBoundingClientRect();
+
+    // Find nearest ancestor block with line numbers
+    let startLine = 1;
+    let endLine = 1;
+    let headingContext = "";
+
+    let node: Node | null = range.startContainer;
+    while (node && node !== document.body) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as HTMLElement;
+        if (el.hasAttribute("data-line-start")) {
+          startLine = parseInt(el.getAttribute("data-line-start") || "1", 10);
+          endLine = parseInt(el.getAttribute("data-line-end") || String(startLine), 10);
+          break;
+        }
+      }
+      node = node.parentNode;
+    }
+
+    // Find preceding heading context
+    let prev: Element | null = node as Element | null;
+    while (prev) {
+      if (/^H[1-6]$/i.test(prev.tagName)) {
+        headingContext = prev.textContent || "";
+        break;
+      }
+      prev = prev.previousElementSibling;
+    }
 
     activeHighlight = {
       text,
       startLine,
       endLine,
+      headingContext,
     };
 
-    const rect = range.getBoundingClientRect();
-    pill.style.display = "block";
-    pill.style.top = `${rect.top + window.scrollY - 38}px`;
-    pill.style.left = `${rect.left + window.scrollX + rect.width / 2 - 50}px`;
+    // Position floating pill above selection
+    pill.style.top = `${window.scrollY + rect.top - 42}px`;
+    pill.style.left = `${window.scrollX + rect.left + rect.width / 2 - 60}px`;
+    pill.style.display = "flex";
   });
 
   pill.addEventListener("mousedown", (e) => {
@@ -357,11 +417,10 @@ function renderQueue() {
       <div class="zen-queue-card">
         <div class="zen-queue-card-meta">
           <span>[${p.tag.toUpperCase()}] ${lineInfo}</span>
-          <button type="button" class="zen-queue-remove-btn" data-idx="${idx}" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;">✕</button>
+          <button type="button" class="zen-queue-remove-btn" data-idx="${idx}" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:0.9rem;">✕</button>
         </div>
         <div class="zen-queue-card-text">${escapeHtml(p.text)}</div>
-      </div>
-    `;
+      </div>`;
     })
     .join("");
 
@@ -370,26 +429,14 @@ function renderQueue() {
       const idx = parseInt(btn.dataset.idx, 10);
       queuedPrompts.splice(idx, 1);
       renderQueue();
+      showToast("Feedback item removed.");
     });
   });
 }
 
-async function sendQueuedPrompts(endSession = false) {
-  const composerInput = document.getElementById("zen-composer-input") as HTMLTextAreaElement;
-  const extraText = composerInput?.value.trim();
-
-  if (extraText) {
-    queuedPrompts.push({
-      id: `note-${Date.now()}`,
-      tag: "chat",
-      text: extraText,
-      createdAt: new Date().toISOString(),
-    });
-    if (composerInput) composerInput.value = "";
-  }
-
-  if (queuedPrompts.length === 0 && !endSession) {
-    showToast("⚠️ No prompts in queue to send.");
+async function sendPrompts(shouldEndSession = false) {
+  if (queuedPrompts.length === 0 && !shouldEndSession) {
+    showToast("No feedback items queued.");
     return;
   }
 
@@ -399,106 +446,116 @@ async function sendQueuedPrompts(endSession = false) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         prompts: queuedPrompts,
-        endSession,
+        endSession: shouldEndSession,
       }),
     });
 
-    if (res.ok) {
-      showToast(`✓ ${queuedPrompts.length} prompt(s) delivered to agent!`);
-      queuedPrompts = [];
-      renderQueue();
-    } else {
-      throw new Error(`HTTP ${res.status}`);
-    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    showToast(
+      shouldEndSession
+        ? "✓ Feedback sent and session concluded."
+        : "🚀 Feedback sent to agent. Agent is working...",
+    );
+
+    queuedPrompts = [];
+    renderQueue();
   } catch (err: any) {
-    showToast(`Failed to send: ${err.message}`);
+    console.error("Send prompts error:", err);
+    showToast(`Failed to send prompts: ${err.message}`);
   }
 }
 
 // -----------------------------------------------------------------------------
-// Chat History Rendering
+// Chat Conversation Stream
 // -----------------------------------------------------------------------------
-function renderChat(messages: any[]) {
+function renderChat(history: any[]) {
   const stream = document.getElementById("zen-chat-stream");
   if (!stream) return;
-  stream.innerHTML = messages
+
+  if (history.length === 0) {
+    stream.style.display = "none";
+    return;
+  }
+
+  stream.style.display = "flex";
+  stream.innerHTML = history
     .map(
-      (m) => `
-    <div class="zen-chat-msg zen-chat-${m.sender}">
-      <strong>${m.sender === "agent" ? "🤖 Agent" : "👤 You"}:</strong> ${escapeHtml(m.text)}
-    </div>
-  `,
+      (msg) => `
+    <div class="zen-chat-bubble zen-chat-${msg.sender}">
+      <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:2px;">${msg.sender.toUpperCase()}</div>
+      <div>${escapeHtml(msg.text)}</div>
+    </div>`,
     )
     .join("");
+
   stream.scrollTop = stream.scrollHeight;
 }
 
 function appendChatMessage(msg: any) {
   const stream = document.getElementById("zen-chat-stream");
   if (!stream) return;
-  const el = document.createElement("div");
-  el.className = `zen-chat-msg zen-chat-${msg.sender}`;
-  el.innerHTML = `<strong>${msg.sender === "agent" ? "🤖 Agent" : "👤 You"}:</strong> ${escapeHtml(msg.text)}`;
-  stream.appendChild(el);
+
+  stream.style.display = "flex";
+  const bubble = document.createElement("div");
+  bubble.className = `zen-chat-bubble zen-chat-${msg.sender}`;
+  bubble.innerHTML = `
+    <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:2px;">${msg.sender.toUpperCase()}</div>
+    <div>${escapeHtml(msg.text)}</div>`;
+  stream.appendChild(bubble);
   stream.scrollTop = stream.scrollHeight;
 }
 
 // -----------------------------------------------------------------------------
-// Initialization
+// UI Utilities & Setup
 // -----------------------------------------------------------------------------
-function init() {
-  sessionKey = extractSessionKey();
-  if (!sessionKey) {
-    const container = document.getElementById("zen-document-view");
-    if (container)
-      container.innerHTML = '<div class="zen-loading">No active session specified.</div>';
-    return;
-  }
+function showToast(message: string) {
+  const toast = document.getElementById("zen-toast");
+  if (!toast) return;
+  toast.textContent = message;
+  toast.classList.add("zen-toast-visible");
+  setTimeout(() => {
+    toast.classList.remove("zen-toast-visible");
+  }, 3000);
+}
 
-  loadDocument();
-  setupSSE();
-  setupSelectionListeners();
+function escapeHtml(text: string): string {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
 
-  // Modal event listeners
-  document.getElementById("zen-modal-cancel")?.addEventListener("click", closeAnnotationModal);
-  document.getElementById("zen-modal-submit")?.addEventListener("click", () => {
-    const input = document.getElementById("zen-modal-input") as HTMLTextAreaElement;
-    const text = input?.value.trim();
-    if (!text) {
-      alert("Please enter a comment for the agent.");
-      return;
-    }
-
-    if (activeHighlight) {
-      queuePrompt({
-        id: `ann-${Date.now()}`,
-        tag: "annotation",
-        text,
-        target: {
-          type: "markdown-range",
-          startLine: activeHighlight.startLine,
-          endLine: activeHighlight.endLine,
-          selectedText: activeHighlight.text,
-          headingContext: activeHighlight.headingContext,
-        },
-        createdAt: new Date().toISOString(),
-      });
-      showToast(
-        `✓ Comment queued for lines ${activeHighlight.startLine}-${activeHighlight.endLine}`,
-      );
-    }
-    closeAnnotationModal();
+function setupUiListeners() {
+  // Theme Toggle
+  document.getElementById("zen-theme-toggle")?.addEventListener("click", () => {
+    const html = document.documentElement;
+    const current = html.getAttribute("data-theme") || "dark";
+    const next = current === "dark" ? "light" : "dark";
+    html.setAttribute("data-theme", next);
+    localStorage.setItem("zen-theme", next);
   });
 
-  // Modal chip autofills
-  document.querySelectorAll(".zen-chip-sm").forEach((chip: any) => {
-    chip.addEventListener("click", () => {
-      const input = document.getElementById("zen-modal-input") as HTMLTextAreaElement;
-      if (input && chip.dataset.fill) {
-        input.value = chip.dataset.fill;
-        input.focus();
-      }
-    });
+  // End Session Button
+  document.getElementById("zen-end-btn")?.addEventListener("click", async () => {
+    if (!confirm("Are you sure you want to end this review session?")) return;
+    try {
+      await fetch(`/api/${sessionKey}/end`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endedBy: "user" }),
+      });
+      showToast("🛑 Review session ended.");
+    } catch (e: any) {
+      showToast(`Error ending session: ${e.message}`);
+    }
+  });
+
+  // Toggle Sidebar
+  document.getElementById("zen-toggle-sidebar")?.addEventListener("click", () => {
+    const sidebar = document.getElementById("zen-sidebar");
+    if (sidebar) {
+      sidebar.style.display = sidebar.style.display === "none" ? "flex" : "none";
+    }
   });
 
   // Action chips in sidebar
@@ -533,38 +590,99 @@ function init() {
     });
   });
 
-  // Send buttons
-  document
-    .getElementById("zen-send-btn")
-    ?.addEventListener("click", () => sendQueuedPrompts(false));
-  document
-    .getElementById("zen-send-end-btn")
-    ?.addEventListener("click", () => sendQueuedPrompts(true));
+  // Modal Cancel & Submit
+  document.getElementById("zen-modal-cancel")?.addEventListener("click", closeAnnotationModal);
+  document.getElementById("zen-modal-submit")?.addEventListener("click", () => {
+    const input = document.getElementById("zen-modal-input") as HTMLTextAreaElement;
+    const text = input?.value.trim();
+    if (!text) {
+      showToast("Please enter feedback before queueing.");
+      return;
+    }
 
-  // End button
-  document.getElementById("zen-end-btn")?.addEventListener("click", async () => {
-    if (!confirm("Are you sure you want to end this review session?")) return;
-    await fetch(`/api/${sessionKey}/end`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ endedBy: "user" }),
+    if (activeHighlight) {
+      queuePrompt({
+        id: `ann-${Date.now()}`,
+        tag: "annotation",
+        text,
+        target: {
+          type: "markdown-range",
+          startLine: activeHighlight.startLine,
+          endLine: activeHighlight.endLine,
+          selectedText: activeHighlight.text,
+          headingContext: activeHighlight.headingContext,
+        },
+        createdAt: new Date().toISOString(),
+      });
+      showToast(
+        `✓ Feedback queued for lines ${activeHighlight.startLine}-${activeHighlight.endLine}`,
+      );
+    }
+
+    closeAnnotationModal();
+  });
+
+  // Modal quick fill chips
+  document.querySelectorAll(".zen-chip-sm").forEach((chip: any) => {
+    chip.addEventListener("click", () => {
+      const input = document.getElementById("zen-modal-input") as HTMLTextAreaElement;
+      if (input) {
+        input.value = chip.dataset.fill || "";
+        input.focus();
+      }
     });
-    showToast("Session concluded.");
   });
 
-  // Theme toggle
-  const themeToggle = document.getElementById("zen-theme-toggle");
-  themeToggle?.addEventListener("click", () => {
-    const current = document.documentElement.getAttribute("data-theme") || "dark";
-    const next = current === "dark" ? "light" : "dark";
-    document.documentElement.setAttribute("data-theme", next);
-    localStorage.setItem("zen-theme", next);
+  // Composer Input
+  const composerInput = document.getElementById("zen-composer-input") as HTMLTextAreaElement;
+  composerInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      const val = composerInput.value.trim();
+      if (!val) return;
+
+      queuePrompt({
+        id: `note-${Date.now()}`,
+        tag: "chat",
+        text: val,
+        createdAt: new Date().toISOString(),
+      });
+
+      composerInput.value = "";
+      showToast("✓ Note added to queue.");
+    }
   });
 
-  const savedTheme = localStorage.getItem("zen-theme");
-  if (savedTheme) {
-    document.documentElement.setAttribute("data-theme", savedTheme);
-  }
+  // Send Prompts Button
+  document.getElementById("zen-send-btn")?.addEventListener("click", () => sendPrompts(false));
+  document.getElementById("zen-send-end-btn")?.addEventListener("click", () => sendPrompts(true));
+
+  // Keyboard Shortcuts (Esc to close modal)
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeAnnotationModal();
+    }
+  });
 }
 
-document.addEventListener("DOMContentLoaded", init);
+// -----------------------------------------------------------------------------
+// App Initialization
+// -----------------------------------------------------------------------------
+function init() {
+  sessionKey = extractSessionKey();
+  if (!sessionKey) {
+    console.error("No session key found in URL.");
+    return;
+  }
+
+  // Restore saved theme
+  const savedTheme = localStorage.getItem("zen-theme") || "dark";
+  document.documentElement.setAttribute("data-theme", savedTheme);
+
+  setupUiListeners();
+  setupSelectionListeners();
+  setupEventStream();
+  loadDocument();
+}
+
+window.addEventListener("DOMContentLoaded", init);
