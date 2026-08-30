@@ -54,13 +54,7 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
     await server.start();
     port = server.port;
 
-    // 3. Ensure screenshot directory exists
-    const screenshotDir = path.resolve("tests/screenshots");
-    if (!fs.existsSync(screenshotDir)) {
-      fs.mkdirSync(screenshotDir, { recursive: true });
-    }
-
-    // 4. Launch Puppeteer browser
+    // 3. Launch Puppeteer browser
     browser = await puppeteer.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
@@ -100,18 +94,6 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
     // Verify Question Card rendered
     const questionCard = await page.$(".zen-callout-question");
     expect(questionCard).not.toBeNull();
-
-    // Capture screenshot of top half
-    const screenshotPath = path.resolve("tests/screenshots/verified-review-ui.png");
-    await page.screenshot({ path: screenshotPath, fullPage: false });
-
-    // Scroll down .zen-canvas to Section 3 and capture KaTeX math and Question cards
-    await page.evaluate(() => {
-      const c = document.querySelector(".zen-canvas");
-      if (c) c.scrollTop = c.scrollHeight;
-    });
-    const mathScreenshotPath = path.resolve("tests/screenshots/verified-math-and-questions.png");
-    await page.screenshot({ path: mathScreenshotPath, fullPage: false });
   });
 
   it("interactively selects question option cards and queues feedback", async () => {

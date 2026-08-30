@@ -28,3 +28,9 @@ npm run format:check    # Prettier validation
 3. **Surgical Line-Based Feedback**: Long-polling (`GET /api/poll`) delivers `{ startLine, endLine, feedback }` payloads so agents can apply direct line replacements (`replace_file_content`) without scanning or rewriting full files.
 4. **Dual-Mode**: Raw `.html` artifacts are seamlessly supported in sandboxed iframes for rich UI prototypes.
 5. **Clean Git Source**: Third-party runtime dependencies are managed via `package.json` and bundled into `dist/` during `npm run build`. No raw vendor JavaScript files are committed to Git.
+
+## UI Verification & Screenshot Standards
+
+- **Visual Quality & Pixel Perfection**: When developing or refactoring UI components (`src/client/`), agents must verify the rendered output in a browser to ensure layout fidelity.
+- **Pull Request Proof**: Visual proof (screenshots or recordings) should be attached as artifacts when submitting pull requests for UI changes or completing visual milestones.
+- **Zero-Bloat Automated Tests**: Automated CI test suites (`tests/e2e-browser.test.ts`) must execute in-memory DOM assertions without saving binary image files to disk. Temporary visual captures are generated on-demand as PR artifacts and kept out of git history.
