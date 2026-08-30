@@ -167,6 +167,9 @@ async function main() {
         if (!trimmed) return;
         try {
           const data = JSON.parse(trimmed);
+          if (data.status === "superseded") {
+            process.exit(0);
+          }
           console.log(JSON.stringify(data, null, 2));
         } catch {
           console.log(trimmed);

@@ -67,4 +67,10 @@ export interface PollEndedResponse {
   message: string;
 }
 
-export type PollResponse = PollFeedbackResponse | PollEndedResponse;
+export interface PollSupersededResponse {
+  status: "superseded";
+  file: string;
+  message: string;
+}
+
+export type PollResponse = PollFeedbackResponse | PollEndedResponse | PollSupersededResponse;

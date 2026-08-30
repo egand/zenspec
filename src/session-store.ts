@@ -165,9 +165,22 @@ export class SessionStore extends EventEmitter {
   }
 
   public registerPollWaiter(key: string, waiter: (res: PollResponse) => void): void {
-    const list = this.pollWaiters.get(key) || [];
-    list.push(waiter);
-    this.pollWaiters.set(key, list);
+    const existing = this.pollWaiters.get(key);
+    if (existing && existing.length > 0) {
+      for (const oldWaiter of existing) {
+        try {
+          oldWaiter({
+            status: "superseded",
+            file: this.sessions.get(key)?.filePath || "",
+            message: "New poll client connected for this session.",
+          });
+        } catch (err) {
+          // Ignore closed connections
+          void err;
+        }
+      }
+    }
+    this.pollWaiters.set(key, [waiter]);
   }
 
   public removePollWaiter(key: string, waiter: (res: PollResponse) => void): void {

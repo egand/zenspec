@@ -83,6 +83,27 @@ describe("SessionStore & Long-Polling Coordinator", () => {
     }
   });
 
+  it("supersedes previous poll waiters when a new poll waiter registers", () => {
+    const session = store.getOrCreateSession("/fake/path/supersede.md");
+
+    let firstResponse: PollResponse | null = null;
+    let secondResponse: PollResponse | null = null;
+
+    // Register first waiter
+    store.registerPollWaiter(session.key, (res) => {
+      firstResponse = res;
+    });
+
+    // Register second waiter (should supersede first)
+    store.registerPollWaiter(session.key, (res) => {
+      secondResponse = res;
+    });
+
+    expect(firstResponse).not.toBeNull();
+    expect((firstResponse as any)?.status).toBe("superseded");
+    expect(secondResponse).toBeNull();
+  });
+
   it("manages agent chat history and presence transitions", () => {
     const session = store.getOrCreateSession(`/fake/path/chat-${Date.now()}.md`);
 
