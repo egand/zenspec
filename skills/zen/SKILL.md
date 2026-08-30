@@ -34,7 +34,8 @@ Zen opens Markdown or HTML documents in a browser for interactive line-level ann
 4. **Apply Surgical Line Updates**:
    - The poll command returns `{ startLine, endLine, selectedText, feedback }`.
    - Use `replace_file_content` to surgically update the exact lines in `docs/plans/<topic>.md`.
-   - Reply to the user with `npx zen-axi poll docs/plans/<topic>.md --agent-reply "Updated Section 2 with feedback"`.
+   - Reply via CLI: `zen-axi poll docs/plans/<topic>.md --agent-reply "Updated Section 2 with feedback"`.
+   - **Terminal Conciseness**: Keep terminal messages short and direct (1-2 sentences with links to changed lines). Do NOT duplicate or re-summarize what is already visible in the browser canvas to avoid wasting tokens.
 
 5. **Conclude Session**:
    - When the user is satisfied, run:
