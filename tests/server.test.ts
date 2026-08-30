@@ -34,7 +34,7 @@ describe("ZenServer HTTP & API Endpoints", () => {
   it("responds to /health with ok status and version", async () => {
     const data: any = await fetchJson(`http://127.0.0.1:${port}/health`);
     expect(data.ok).toBe(true);
-    expect(data.app).toBe("zen-axi");
+    expect(data.app).toBe("zenspec");
     expect(data.version).toBe("0.1.0");
   });
 
@@ -139,7 +139,7 @@ describe("ZenServer HTTP & API Endpoints", () => {
     const res = await fetchRaw(`http://127.0.0.1:${port}/session/${testKey}`);
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain("<!doctype html>");
-    expect(res.body).toContain("Zen AXI Reviewer");
+    expect(res.body).toContain("ZenSpec Reviewer");
   });
 });
 

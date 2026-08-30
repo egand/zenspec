@@ -15,7 +15,7 @@ import {
   PollResponse,
 } from "./types.js";
 
-const STATE_DIR = path.join(os.homedir(), ".zen-axi");
+const STATE_DIR = path.join(os.homedir(), ".zenspec");
 const STATE_FILE = path.join(STATE_DIR, "state.json");
 
 export function sessionKey(canonicalPath: string): string {

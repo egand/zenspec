@@ -38,7 +38,7 @@ describe("CLI Export Command", () => {
       cwd: path.resolve(__dirname, ".."),
       encoding: "utf8",
     });
-    expect(output).toContain("zen-axi v0.1.0");
+    expect(output).toContain("zenspec v0.1.0");
   });
 
   it("prints help on --help", () => {
@@ -46,11 +46,11 @@ describe("CLI Export Command", () => {
       cwd: path.resolve(__dirname, ".."),
       encoding: "utf8",
     });
-    expect(output).toContain("Zen AXI");
-    expect(output).toContain("zen-axi poll");
-    expect(output).toContain("zen-axi progress");
-    expect(output).toContain("zen-axi adr");
-    expect(output).toContain("zen-axi mcp");
+    expect(output).toContain("ZenSpec");
+    expect(output).toContain("zenspec poll");
+    expect(output).toContain("zenspec progress");
+    expect(output).toContain("zenspec adr");
+    expect(output).toContain("zenspec mcp");
   });
 
   it("generates an ADR file via CLI adr command", () => {

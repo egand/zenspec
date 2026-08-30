@@ -71,7 +71,7 @@ async function startServerDaemon(port = DEFAULT_PORT, host = DEFAULT_HOST): Prom
     await new Promise((r) => setTimeout(r, 100));
   }
 
-  throw new Error(`Failed to start zen-axi daemon on port ${port}`);
+  throw new Error(`Failed to start zenspec daemon on port ${port}`);
 }
 
 async function main() {
@@ -84,12 +84,12 @@ async function main() {
   }
 
   if (command === "--version" || command === "-v") {
-    console.log("zen-axi v0.1.0");
+    console.log("zenspec v0.1.0");
     return;
   }
 
   // ---------------------------------------------------------------------------
-  // zen-axi mcp (native Model Context Protocol server over stdio)
+  // zenspec mcp (native Model Context Protocol server over stdio)
   // ---------------------------------------------------------------------------
   if (command === "mcp") {
     await runMcpServer();
@@ -97,7 +97,7 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
-  // zen-axi server (foreground daemon worker)
+  // zenspec server (foreground daemon worker)
   // ---------------------------------------------------------------------------
   if (command === "server") {
     const portIdx = args.indexOf("--port");
@@ -107,23 +107,23 @@ async function main() {
 
     const server = new ZenServer({ port, host });
     await server.start();
-    console.log(pc.green(`Zen AXI Server listening on http://${host}:${server.port}`));
+    console.log(pc.green(`ZenSpec Server listening on http://${host}:${server.port}`));
     return;
   }
 
   // ---------------------------------------------------------------------------
-  // zen-axi stop
+  // zenspec stop
   // ---------------------------------------------------------------------------
   if (command === "stop") {
     const isRunning = await isServerRunning();
     if (!isRunning) {
-      console.log(pc.yellow("Zen AXI server is not running."));
+      console.log(pc.yellow("ZenSpec server is not running."));
       return;
     }
 
     const statusCode = await postToDaemon("/shutdown");
     if (statusCode === 200) {
-      console.log(pc.green("✓ Zen AXI server stopped successfully."));
+      console.log(pc.green("✓ ZenSpec server stopped successfully."));
     } else {
       console.log(pc.red("Failed to stop server."));
     }
@@ -131,23 +131,24 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
-  // zen-axi status
+  // zenspec status
   // ---------------------------------------------------------------------------
   if (command === "status") {
     const isRunning = await isServerRunning();
     if (!isRunning) {
-      console.log(pc.yellow("Zen AXI server is not running."));
+      console.log(pc.yellow("ZenSpec server is not running."));
       return;
     }
     const store = new SessionStore();
     const sessions = store.getAllSessions();
     console.log(
-      pc.bold(pc.cyan(`\nZen AXI Server: Running on http://${DEFAULT_HOST}:${DEFAULT_PORT}`)),
+      pc.bold(pc.cyan(`\nZenSpec Server: Running on http://${DEFAULT_HOST}:${DEFAULT_PORT}`)),
     );
     console.log(`Active Sessions: ${sessions.length}\n`);
     for (const s of sessions) {
       const statusStr = s.ended ? pc.red("[ENDED]") : pc.green("[ACTIVE]");
       console.log(`  ${statusStr} ${pc.bold(s.filePath)} (${s.docType})`);
+
       console.log(`    URL: http://${DEFAULT_HOST}:${DEFAULT_PORT}/session/${s.key}`);
       console.log(`    Queued Prompts: ${s.queuedPrompts.length}`);
     }
@@ -156,13 +157,13 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
-  // zen-axi poll <file> [--agent-reply "..."]
+  // zenspec poll <file> [--agent-reply "..."]
   // ---------------------------------------------------------------------------
   if (command === "poll") {
     const file = args[1];
     if (!file) {
       console.error(
-        pc.red("Error: Please specify a file to poll. Example: zen-axi poll docs/plans/spec.md"),
+        pc.red("Error: Please specify a file to poll. Example: zenspec poll docs/plans/spec.md"),
       );
       process.exit(1);
     }
@@ -178,7 +179,7 @@ async function main() {
     }
 
     process.stderr.write(
-      pc.cyan(`\n⏳ Zen AXI: Waiting for human feedback on ${pc.bold(path.basename(file))}...\n`),
+      pc.cyan(`\n⏳ ZenSpec: Waiting for human feedback on ${pc.bold(path.basename(file))}...\n`),
     );
 
     const pollUrl = `http://${DEFAULT_HOST}:${DEFAULT_PORT}/api/poll?key=${key}`;
@@ -209,7 +210,7 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
-  // zen-axi reply <file> --message "..."
+  // zenspec reply <file> --message "..."
   // ---------------------------------------------------------------------------
   if (command === "reply") {
     const file = args[1];
@@ -218,7 +219,7 @@ async function main() {
     const message = msgIdx !== -1 ? args[msgIdx + 1] : args[2];
 
     if (!file || !message) {
-      console.error(pc.red("Usage: zen-axi reply <file> --message <text>"));
+      console.error(pc.red("Usage: zenspec reply <file> --message <text>"));
       process.exit(1);
     }
 
@@ -230,7 +231,7 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
-  // zen-axi progress <file> --step "..." [--status running|done|error] [--details "..."]
+  // zenspec progress <file> --step "..." [--status running|done|error] [--details "..."]
   // ---------------------------------------------------------------------------
   if (command === "progress") {
     const file = args[1];
@@ -242,7 +243,7 @@ async function main() {
     const details = detailsIdx !== -1 ? args[detailsIdx + 1] : undefined;
 
     if (!file || !step) {
-      console.error(pc.red("Usage: zen-axi progress <file> --step <text> [--status <status>]"));
+      console.error(pc.red("Usage: zenspec progress <file> --step <text> [--status <status>]"));
       process.exit(1);
     }
 
@@ -257,7 +258,7 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
-  // zen-axi adr <file> [--out <dest>]
+  // zenspec adr <file> [--out <dest>]
   // ---------------------------------------------------------------------------
   if (command === "adr") {
     const file = args[1];
@@ -282,7 +283,7 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
-  // zen-axi end <file>
+  // zenspec end <file>
   // ---------------------------------------------------------------------------
   if (command === "end") {
     const file = args[1];
@@ -302,7 +303,7 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
-  // zen-axi export <file> [--out <dest>]
+  // zenspec export <file> [--out <dest>]
   // ---------------------------------------------------------------------------
   if (command === "export") {
     const file = args[1];
@@ -322,7 +323,7 @@ async function main() {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>${path.basename(file)} - Zen Export</title>
+  <title>${path.basename(file)} - ZenSpec Export</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.21/dist/katex.min.css">
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
@@ -349,7 +350,7 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------------
-  // Default: zen-axi <file.md|file.html|folder>
+  // Default: zenspec <file.md|file.html|folder>
   // ---------------------------------------------------------------------------
   const targetFile = command;
   if (!fs.existsSync(targetFile)) {
@@ -376,7 +377,7 @@ async function main() {
     await open(sessionUrl);
   }
 
-  console.log(pc.bold(pc.cyan("\n🧘 Zen AXI Reviewer\n")));
+  console.log(pc.bold(pc.cyan("\n🧘 ZenSpec Reviewer\n")));
   console.log(
     `  ${pc.bold("Target:")}   ${pc.green(targetFile)} (${isDir ? "workspace" : session.docType})`,
   );
@@ -395,25 +396,25 @@ async function main() {
   }
 
   console.log(
-    `\n${pc.dim("Next step:")} Run ${pc.cyan(`zen-axi poll "${targetFile}"`)} to wait for human feedback.\n`,
+    `\n${pc.dim("Next step:")} Run ${pc.cyan(`zenspec poll "${targetFile}"`)} to wait for human feedback.\n`,
   );
 }
 
 function printHelp() {
   console.log(`
-${pc.bold(pc.cyan("Zen AXI"))} - Minimalist, token-efficient Agent Experience Interface (AXI) for Markdown & HTML artifacts
+${pc.bold(pc.cyan("ZenSpec"))} - Minimalist, token-efficient Agent Experience Interface (AXI) for Markdown & HTML artifacts
 
 ${pc.bold("USAGE:")}
-  zen-axi <file|dir>                   Open or resume review session in browser
-  zen-axi poll <file>                  Wait for human feedback via long-polling
-  zen-axi reply <file> -m "..."        Send progress message to browser conversation
-  zen-axi progress <file> --step "..." Stream live execution status to reviewer topbar
-  zen-axi adr <file> [--out <dest>]    Generate Architecture Decision Record (ADR)
-  zen-axi end <file>                   Conclude review session as agent
-  zen-axi export <file> [--out <dest>] Export standalone portable HTML
-  zen-axi mcp                          Run native Model Context Protocol (MCP) server
-  zen-axi status                       List active review sessions
-  zen-axi stop                         Stop local background daemon
+  zenspec <file|dir>                   Open or resume review session in browser
+  zenspec poll <file>                  Wait for human feedback via long-polling
+  zenspec reply <file> -m "..."        Send progress message to browser conversation
+  zenspec progress <file> --step "..." Stream live execution status to reviewer topbar
+  zenspec adr <file> [--out <dest>]    Generate Architecture Decision Record (ADR)
+  zenspec end <file>                   Conclude review session as agent
+  zenspec export <file> [--out <dest>] Export standalone portable HTML
+  zenspec mcp                          Run native Model Context Protocol (MCP) server
+  zenspec status                       List active review sessions
+  zenspec stop                         Stop local background daemon
 
 ${pc.bold("FLAGS:")}
   --share                              Start secure remote tunnel for Codespaces/remote dev

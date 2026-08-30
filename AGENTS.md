@@ -1,10 +1,10 @@
 # AGENTS.md
 
-Guidance and standards for AI coding agents working on `zen-axi`.
+Guidance and standards for AI coding agents working on `zenspec`.
 
 ## Project Overview
 
-`zen-axi` is a minimalist, token-efficient Agent Experience Interface (AXI) and browser reviewer for Markdown documentation (`docs/plans/*.md`) and rich HTML artifacts.
+`zenspec` is a minimalist, token-efficient Agent Experience Interface (AXI) and browser reviewer for Markdown documentation (`docs/plans/*.md`) and rich HTML artifacts.
 
 ## Pinned Runtime & Commands
 

@@ -9,7 +9,7 @@ const DIST = path.join(ROOT, "dist");
 const CLIENT_DIST = path.join(DIST, "client");
 
 async function build() {
-  console.log("🔨 Building Zen AXI...");
+  console.log("🔨 Building ZenSpec...");
 
   // Ensure dist directories exist
   fs.mkdirSync(DIST, { recursive: true });
@@ -49,7 +49,7 @@ async function build() {
   fs.copyFileSync(path.join(ROOT, "src/client/index.html"), path.join(CLIENT_DIST, "index.html"));
   fs.copyFileSync(path.join(ROOT, "src/client/styles.css"), path.join(CLIENT_DIST, "styles.css"));
 
-  console.log("✨ Zen AXI build complete!");
+  console.log("✨ ZenSpec build complete!");
 }
 
 build().catch((err) => {

@@ -1,10 +1,10 @@
-# 🧘 Zen AXI
+# 🧘 ZenSpec
 
 > **Minimalist, token-efficient Agent Experience Interface (AXI) and interactive browser reviewer for Markdown & HTML artifacts.**
 
 ---
 
-## ⚡ What is Zen AXI?
+## ⚡ What is ZenSpec?
 
 AI coding agents are great at creating architecture plans, technical specifications, and UI prototypes. However, the human-in-the-loop review process is often fragmented:
 
@@ -12,13 +12,13 @@ AI coding agents are great at creating architecture plans, technical specificati
 - Taking screenshots loses interactivity.
 - Writing full HTML boilerplate for everyday documents wastes 70%+ of agent tokens.
 
-**Zen AXI** solves this by providing a lightweight, local-first review loop:
+**ZenSpec** solves this by providing a lightweight, local-first review loop:
 
 - 📝 **Markdown-First**: Write clean, token-efficient Markdown in your repo (`docs/plans/spec.md`).
 - ⚡ **Instant In-Memory Rendering**: KaTeX math ($E=mc^2$), Mermaid diagrams, and Markmap mindmaps render in `< 15ms` with zero build steps.
 - 🎯 **Line-Anchored Annotation**: Highlighting text in the browser captures exact Markdown line numbers (`lines: [14, 18]`), allowing the agent to make deterministic, surgical edits.
 - 🎨 **Dual-Mode Expressiveness**: Also supports raw `.html` files in sandboxed iframes when building rich interactive UI mocks.
-- 🤖 **Agent-Native Protocol**: CLI long-polling (`zen-axi poll`) with live agent presence indicators.
+- 🤖 **Agent-Native Protocol**: CLI long-polling (`zenspec poll`) with live agent presence indicators.
 
 ---
 
@@ -26,16 +26,16 @@ AI coding agents are great at creating architecture plans, technical specificati
 
 ### 1. Zero-Install with NPX
 
-Any capable agent can run `zen-axi` with nothing pre-installed:
+Any capable agent can run `zenspec` with nothing pre-installed:
 
 ```bash
-npx zen-axi docs/plans/architecture.md
+npx zenspec docs/plans/architecture.md
 ```
 
 ### 2. Global Installation
 
 ```bash
-npm install -g zen-axi
+npm install -g zenspec
 ```
 
 ---
@@ -44,16 +44,16 @@ npm install -g zen-axi
 
 | Command                          | Description                                                        |
 | :------------------------------- | :----------------------------------------------------------------- |
-| `zen-axi <file\|dir>`            | Start daemon and open interactive review session in browser        |
-| `zen-axi poll <file>`            | Long-poll until human submits feedback or ends session             |
-| `zen-axi reply <file> -m "..."`  | Push agent progress/chat message to the browser conversation       |
-| `zen-axi progress <file> --step` | Stream live execution status (testing, patching) to browser topbar |
-| `zen-axi adr <file> [--out]`     | Generate MADR Architecture Decision Record from review decisions   |
-| `zen-axi mcp`                    | Run native Model Context Protocol (MCP) server over stdio          |
-| `zen-axi end <file>`             | Conclude review session as agent                                   |
-| `zen-axi export <file>`          | Export standalone portable HTML with inlined styles and scripts    |
-| `zen-axi status`                 | List active review sessions                                        |
-| `zen-axi stop`                   | Stop local background daemon                                       |
+| `zenspec <file\|dir>`            | Start daemon and open interactive review session in browser        |
+| `zenspec poll <file>`            | Long-poll until human submits feedback or ends session             |
+| `zenspec reply <file> -m "..."`  | Push agent progress/chat message to the browser conversation       |
+| `zenspec progress <file> --step` | Stream live execution status (testing, patching) to browser topbar |
+| `zenspec adr <file> [--out]`     | Generate MADR Architecture Decision Record from review decisions   |
+| `zenspec mcp`                    | Run native Model Context Protocol (MCP) server over stdio          |
+| `zenspec end <file>`             | Conclude review session as agent                                   |
+| `zenspec export <file>`          | Export standalone portable HTML with inlined styles and scripts    |
+| `zenspec status`                 | List active review sessions                                        |
+| `zenspec stop`                   | Stop local background daemon                                       |
 
 ### Flags
 
@@ -68,7 +68,7 @@ npm install -g zen-axi
 
 ### 1. Ghost Diffs & Change Tracking
 
-When an agent edits the reviewed Markdown file on disk, `zen-axi` computes line diffs and renders clean visual gutter diff indicators directly in the browser canvas.
+When an agent edits the reviewed Markdown file on disk, `zenspec` computes line diffs and renders clean visual gutter diff indicators directly in the browser canvas.
 
 ### 2. Suggest Edit Mode
 
@@ -76,13 +76,13 @@ Reviewers can highlight any text and click **Suggest Edit** to provide proposed 
 
 ### 3. Native Model Context Protocol (MCP) Server
 
-Integrate with Claude Desktop, Cursor, Antigravity, or Windsurf via `zen-axi mcp`:
+Integrate with Claude Desktop, Cursor, Antigravity, or Windsurf via `zenspec mcp`:
 
 ```json
 {
   "mcpServers": {
-    "zen-axi": {
-      "command": "zen-axi",
+    "zenspec": {
+      "command": "zenspec",
       "args": ["mcp"]
     }
   }
@@ -95,7 +95,7 @@ Integrate with Claude Desktop, Cursor, Antigravity, or Windsurf via `zen-axi mcp
 - Multi-Select: `> [!QUESTION:MULTI] Which modules to enable?`
 - Rating Scale: `> [!QUESTION:RATING] Rate the caching strategy`
 
-### 5. Automated ADR Generator (`zen-axi adr`)
+### 5. Automated ADR Generator (`zenspec adr`)
 
 Instantly turn completed review conversations and selected decision cards into standard MADR (Markdown Architectural Decision Records) in `docs/adr/`.
 
@@ -109,7 +109,7 @@ Instantly turn completed review conversations and selected decision cards into s
 └───────────────┬────────────────┘
                 ▼
 ┌────────────────────────────────┐
-│ 2. zen-axi docs/plans/plan.md  │ (Opens browser at localhost:4388)
+│ 2. zenspec docs/plans/plan.md  │ (Opens browser at localhost:4388)
 └───────────────┬────────────────┘
                 ▼
 ┌────────────────────────────────┐
@@ -118,7 +118,7 @@ Instantly turn completed review conversations and selected decision cards into s
 └───────────────┬────────────────┘
                 ▼
 ┌────────────────────────────────┐
-│ 4. zen-axi poll plan.md        │ (Returns { lines: [14, 16], replacementText })
+│ 4. zenspec poll plan.md        │ (Returns { lines: [14, 16], replacementText })
 └───────────────┬────────────────┘
                 ▼
 ┌────────────────────────────────┐
@@ -131,10 +131,10 @@ Instantly turn completed review conversations and selected decision cards into s
 
 ## 🧩 Agent Skill
 
-Install the Zen skill for Claude Code, Antigravity, or Codex:
+Install the ZenSpec skill for Claude Code, Antigravity, or Codex:
 
 ```bash
-npx skills add egand/zen-axi --skill zen
+npx skills add egand/zenspec --skill zenspec
 ```
 
 ---

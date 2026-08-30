@@ -9,7 +9,7 @@ import puppeteer, { Browser, Page } from "puppeteer";
 import { ZenServer } from "../src/server.js";
 import { SessionStore } from "../src/session-store.js";
 
-describe("Zen AXI Real Browser End-to-End Test Suite", { timeout: 25000 }, () => {
+describe("ZenSpec Real Browser End-to-End Test Suite", { timeout: 25000 }, () => {
   let server: ZenServer;
   let store: SessionStore;
   let port: number;
@@ -81,7 +81,7 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
 
     // Verify Title & Brand
     const brand = await page.$eval(".zen-title", (el) => el.textContent);
-    expect(brand).toBe("Zen AXI");
+    expect(brand).toBe("ZenSpec");
 
     // Verify KaTeX Display Math is rendered
     const katexEl = await page.$(".katex-display");

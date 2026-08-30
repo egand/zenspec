@@ -147,7 +147,7 @@ export class ZenServer {
     // Health check
     if (pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, app: "zen-axi", version: "0.1.0", port: this.port }));
+      res.end(JSON.stringify({ ok: true, app: "zenspec", version: "0.1.0", port: this.port }));
       return;
     }
 

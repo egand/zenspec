@@ -1,14 +1,16 @@
 {
-  "name": "zen-axi",
+  "name": "zenspec",
   "version": "0.1.0",
   "description": "Minimalist, token-efficient Agent Experience Interface (AXI) and browser reviewer for Markdown & HTML artifacts",
   "type": "module",
   "bin": {
+    "zenspec": "dist/cli.mjs",
+    "zenspec-axi": "dist/cli.mjs",
     "zen-axi": "dist/cli.mjs"
   },
   "files": [
     "dist",
-    "skills/zen",
+    "skills/zenspec",
     "LICENSE",
     "README.md"
   ],

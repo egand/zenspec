@@ -39,9 +39,10 @@ async function ensureServerRunning(port = DEFAULT_PORT, host = DEFAULT_HOST): Pr
 export function createMcpServer(store = new SessionStore()): Server {
   const server = new Server(
     {
-      name: "zen-axi",
+      name: "zenspec",
       version: "0.1.0",
     },
+
     {
       capabilities: {
         tools: {},
