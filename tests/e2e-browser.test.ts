@@ -54,7 +54,13 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
     await server.start();
     port = server.port;
 
-    // 3. Launch Puppeteer browser
+    // 3. Ensure screenshot directory exists
+    const screenshotDir = path.resolve("tests/screenshots");
+    if (!fs.existsSync(screenshotDir)) {
+      fs.mkdirSync(screenshotDir, { recursive: true });
+    }
+
+    // 4. Launch Puppeteer browser
     browser = await puppeteer.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
