@@ -44,8 +44,8 @@ npm install -g zenspec
 
 | Command                          | Description                                                        |
 | :------------------------------- | :----------------------------------------------------------------- |
-| `zenspec <file\|dir>`            | Start daemon and open interactive review session in browser        |
-| `zenspec <file\|dir> --poll`     | Start review and immediately wait for human feedback & approval    |
+| `zenspec <file\|dir>`            | Open review in browser AND wait for feedback (default auto-poll)   |
+| `zenspec <file\|dir> --no-poll`  | Open review in browser in background without blocking              |
 | `zenspec poll <file>`            | Long-poll until human submits feedback or ends session             |
 | `zenspec approve <file>`         | Approve plan & authorize agent to proceed with implementation      |
 | `zenspec reply <file> -m "..."`  | Push agent progress/chat message to the browser conversation       |
@@ -59,7 +59,7 @@ npm install -g zenspec
 
 ### Flags
 
-- `-p, --poll`: Launch review session and automatically long-poll until feedback is submitted or the plan is approved (eliminates forgotten polls).
+- `--no-poll, --detach, -d`: Launch review without blocking on feedback.
 - `--share`: Launch secure remote sharing tunnel for GitHub Codespaces, remote containers, or LAN collaboration.
 - `--no-open`: Register and serve session without launching the default browser.
 - `--port <number>`: Specify custom port (default: `4388`).
@@ -69,17 +69,17 @@ npm install -g zenspec
 
 ## ⚡ Highlights & Key Features
 
-### 1. Multi-Document File Explorer
+### 1. Default Auto-Polling (Eliminates Forgotten Polls)
+
+Running `zenspec docs/plans/plan.md` starts the daemon, opens the browser, and automatically long-polls for human reviewer feedback or plan approval in a single blocking call. In MCP, `zen_open_review` defaults to `autoPoll: true`.
+
+### 2. Multi-Document File Explorer
 
 Review entire plan directories or projects in a single browser window. The Left Sidebar **Documents Explorer** displays all workspace `.md` and `.html` files, their approval status, and queued comments, allowing seamless document switching without restarting servers or browser tabs.
 
-### 2. Resolved Feedback & Modification Highlighting
+### 3. Resolved Feedback & Modification Highlighting
 
 When the reviewer asks a question or suggests a change and the agent applies edits or replies, the item transitions to the **Resolved** section in the queue. Clicking **📍 Jump to change** smoothly scrolls the document canvas directly to the modified lines and highlights them with a glowing pulse animation.
-
-### 3. All-in-One Auto-Polling (`--poll` / `autoPoll`)
-
-Prevents AI coding agents from dropping review loops. A single command (`npx zenspec docs/plans/plan.md --poll`) or MCP call (`zen_open_review` with `autoPoll: true`) opens the reviewer and synchronously waits for feedback or plan approval before proceeding.
 
 ### 4. Suggest Edit Mode
 

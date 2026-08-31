@@ -434,7 +434,9 @@ async function main() {
     }
   }
 
-  const shouldPoll = args.includes("--poll") || args.includes("-p");
+  const noPoll = args.includes("--no-poll") || args.includes("--detach") || args.includes("-d");
+  const shouldPoll = !noPoll;
+
   if (shouldPoll) {
     const replyIdx = args.indexOf("--agent-reply");
     if (replyIdx !== -1 && args[replyIdx + 1]) {
@@ -481,7 +483,7 @@ async function main() {
   console.log(
     `  Run ${pc.cyan(`zenspec poll "${targetFile}"`)} to wait for human feedback & approval.`,
   );
-  console.log(`  Or use single-command mode: ${pc.cyan(`zenspec "${targetFile}" --poll`)}\n`);
+  console.log(`  Or use default auto-polling: ${pc.cyan(`zenspec "${targetFile}"`)}\n`);
 }
 
 function printHelp() {
@@ -489,8 +491,8 @@ function printHelp() {
 ${pc.bold(pc.cyan("ZenSpec"))} - Minimalist, token-efficient Agent Experience Interface (AXI) for Markdown & HTML artifacts
 
 ${pc.bold("USAGE:")}
-  zenspec <file|dir>                   Open or resume review session in browser
-  zenspec <file|dir> --poll            Open review session AND immediately wait for feedback
+  zenspec <file|dir>                   Open review session in browser AND wait for feedback (default)
+  zenspec <file|dir> --no-poll         Open review session in background without waiting
   zenspec poll <file>                  Wait for human feedback via long-polling
   zenspec approve <file> [--notes ".."] Approve plan & authorize agent to proceed
   zenspec reply <file> -m "..."        Send progress message to browser conversation
@@ -503,7 +505,7 @@ ${pc.bold("USAGE:")}
   zenspec stop                         Stop local background daemon
 
 ${pc.bold("FLAGS:")}
-  --poll, -p                           Wait for human feedback immediately after launch
+  --no-poll, --detach, -d              Launch review without blocking on feedback
   --share                              Start secure remote tunnel for Codespaces/remote dev
   --no-open                            Start/resume session without launching browser
   --agent-reply "<msg>"                Attach agent reply when polling

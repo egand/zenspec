@@ -63,7 +63,7 @@ export function createMcpServer(store = new SessionStore()): Server {
         {
           name: McpToolName.OpenReview,
           description:
-            "Start the ZenSpec review daemon and open a Markdown or HTML document in the browser for interactive human review. MANDATORY GATE: You MUST NOT start implementing features or scaffolding files until the plan is approved (approved: true). Set autoPoll: true to automatically wait for feedback or approval in this call, or call zen_poll_feedback immediately afterwards.",
+            "Start the ZenSpec review daemon and open a Markdown or HTML document in the browser for interactive human review. By default, autoPoll is enabled (autoPoll: true), which automatically waits/polls until the human reviewer submits annotations, answers questions, or explicitly approves the plan. MANDATORY GATE: You MUST NOT start implementing features or scaffolding files until the plan is approved (approved: true).",
           inputSchema: {
             type: "object",
             properties: {
@@ -74,7 +74,7 @@ export function createMcpServer(store = new SessionStore()): Server {
               autoPoll: {
                 type: "boolean",
                 description:
-                  "If true, starts the review session AND immediately waits/polls for human reviewer feedback or plan approval in a single tool call.",
+                  "Whether to wait/poll for human reviewer feedback or plan approval in this call (default: true). Set to false to detach without blocking.",
               },
               noOpen: {
                 type: "boolean",
@@ -231,7 +231,9 @@ export function createMcpServer(store = new SessionStore()): Server {
         await open(sessionUrl).catch(() => {});
       }
 
-      if (args?.autoPoll) {
+      const shouldAutoPoll = args?.autoPoll !== false;
+
+      if (shouldAutoPoll) {
         if (session.queuedPrompts.length > 0) {
           const prompts = store.takeQueuedPrompts(session.key);
           return {
