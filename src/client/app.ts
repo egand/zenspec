@@ -59,8 +59,11 @@ function updateApprovalState(isApproved: boolean, approvedAt?: string) {
 // -----------------------------------------------------------------------------
 // Document Loading and Rendering
 // -----------------------------------------------------------------------------
-async function loadDocument(targetRelFile?: string) {
+async function loadDocument(targetRelFile?: string, isHotReload = false) {
   if (!sessionKey) return;
+  const canvas = document.getElementById("zen-canvas");
+  const savedScrollTop = canvas?.scrollTop ?? 0;
+
   try {
     const url = targetRelFile
       ? `/api/${sessionKey}/document?file=${encodeURIComponent(targetRelFile)}`
@@ -160,6 +163,11 @@ async function loadDocument(targetRelFile?: string) {
         data.raw,
       )}" style="width:100%;height:80vh;border:none;"></iframe>`;
       setupIframeInspector();
+    }
+
+    // Restore scroll position on hot reload
+    if (isHotReload && canvas) {
+      canvas.scrollTop = savedScrollTop;
     }
 
     // Render Queue and Resolved Feedback
@@ -672,7 +680,6 @@ function setupEventStream() {
   activeEventSource = es;
 
   es.addEventListener(ServerEvent.Reload, (e: MessageEvent) => {
-    showToast("⟳ File updated on disk. Re-rendering...");
     try {
       const data = JSON.parse(e.data);
       if (data.diffs) {
@@ -681,7 +688,8 @@ function setupEventStream() {
     } catch {
       // Ignore
     }
-    loadDocument(currentFilePath);
+    loadDocument(currentFilePath, true);
+    showToast("⚡ Hot reloaded: document updated on disk");
   });
 
   es.addEventListener(ServerEvent.Diff, (e: MessageEvent) => {
@@ -737,7 +745,6 @@ function setupEventStream() {
   es.addEventListener(ServerEvent.Prompts, (e: MessageEvent) => {
     try {
       const data = JSON.parse(e.data);
-      if (data.queued) queuedPrompts = data.queued;
       if (data.history) {
         resolvedPrompts = data.history.filter((p: any) => p.status === "resolved");
       }

@@ -247,19 +247,53 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
     expect(headingText).toContain("Secondary RFC Document");
   });
 
-  it("interactively clicks Approve Plan button and marks session approved", async () => {
-    // Switch back to plan.md
-    const planCard = await page.waitForSelector(`.zen-file-card[data-relpath*="plan.md"]`, {
-      timeout: 10000,
-    });
-    await planCard?.click();
+  it("hot reloads updated document in memory when modified on disk", async () => {
+    // Append new section to secondFile (currently active in browser) on disk
+    const updatedContent =
+      fs.readFileSync(secondFile, "utf8") +
+      "\n\n## Live Hot Reload Section\nHot reloading injected this content seamlessly.\n";
+    fs.writeFileSync(secondFile, updatedContent, "utf8");
 
-    // Check initial state
-    const approveBtn = await page.waitForSelector("#zen-approve-btn", { timeout: 10000 });
-    expect(approveBtn).not.toBeNull();
+    // Wait for the browser to receive SSE reload and render the new section
+    await page.waitForFunction(
+      () => {
+        const h2Elements = Array.from(document.querySelectorAll(".zen-document-container h2"));
+        return h2Elements.some((el) => el.textContent?.includes("Live Hot Reload Section"));
+      },
+      { timeout: 10000 },
+    );
+
+    const hasNewSection = await page.evaluate(() => {
+      const h2Elements = Array.from(document.querySelectorAll(".zen-document-container h2"));
+      return h2Elements.some((el) => el.textContent?.includes("Live Hot Reload Section"));
+    });
+    expect(hasNewSection).toBe(true);
+  });
+
+  it("interactively clicks Approve Plan button and marks session approved", async () => {
+    // Switch back to plan.md via Documents tab
+    await page.evaluate(() => {
+      const tab = document.getElementById("zen-tab-files");
+      tab?.click();
+      const card = document.querySelector('.zen-file-card[data-relpath*="plan.md"]') as HTMLElement;
+      card?.click();
+    });
+
+    // Wait for plan.md to be active
+    await page.waitForFunction(
+      () => {
+        const h1 = document.querySelector(".zen-document-container h1");
+        return h1 && h1.textContent?.includes("Zen Architecture Plan");
+      },
+      { timeout: 10000 },
+    );
 
     // Click Approve Plan button
-    await approveBtn?.click();
+    await page.waitForSelector("#zen-approve-btn", { visible: true, timeout: 10000 });
+    await page.evaluate(() => {
+      const btn = document.getElementById("zen-approve-btn");
+      btn?.click();
+    });
 
     // Wait for button text to update to "✓ Plan Approved"
     await page.waitForFunction(

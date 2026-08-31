@@ -183,6 +183,25 @@ export class ZenServer {
               files,
               timestamp: Date.now(),
             });
+
+            if (fs.existsSync(changedPath)) {
+              try {
+                const canonicalChanged = fs.realpathSync(changedPath);
+                const fileSession = this.store.getSessionByFile(canonicalChanged);
+                if (fileSession) {
+                  const newContent = fs.readFileSync(canonicalChanged, "utf8");
+                  const diffs = this.store.recordFileUpdate(fileSession.key, newContent);
+                  this.emitSSE(key, ServerEvent.Reload, {
+                    file: canonicalChanged,
+                    relPath: path.relative(workspaceRoot, canonicalChanged),
+                    timestamp: Date.now(),
+                    diffs,
+                  });
+                }
+              } catch {
+                // Ignore
+              }
+            }
           }, 80);
         }
       });
@@ -416,6 +435,11 @@ export class ZenServer {
         filePathToRead === session.canonicalPath
           ? session
           : this.store.getOrCreateSession(filePathToRead);
+
+      this.watchFile(key, filePathToRead);
+      if (effectiveSession.key !== key) {
+        this.watchFile(effectiveSession.key, filePathToRead);
+      }
 
       const raw = fs.readFileSync(filePathToRead, "utf8");
       const stat = fs.statSync(filePathToRead);
