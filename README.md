@@ -81,15 +81,19 @@ Review entire plan directories or projects in a single browser window. The Left 
 
 When the reviewer asks a question or suggests a change and the agent applies edits or replies, the item transitions to the **Resolved** section in the queue. Clicking **📍 Jump to change** smoothly scrolls the document canvas directly to the modified lines and highlights them with a glowing pulse animation.
 
-### 4. Suggest Edit Mode
+### 4. In-Memory Live Hot Reloading
+
+Whenever a document is edited on disk, `ZenServer` broadcasts a live Server-Sent Event (`ServerEvent.Reload`). The browser client re-renders the document in memory while preserving the reviewer's exact scroll position, updating diagrams, and re-applying ghost diff highlights without page reloads.
+
+### 5. Suggest Edit Mode
 
 Reviewers can highlight any text and click **Suggest Edit** to provide proposed replacement text. The agent receives `{ startLine, endLine, selectedText, replacementText }` for instant, one-call application via `replace_file_content`.
 
-### 5. Plan & Artifact Approval Gate (✅ Approve Plan)
+### 6. Plan & Artifact Approval Gate (✅ Approve Plan)
 
 The UI includes a dedicated **Approve Plan** button (`a` shortcut). Without clicking this approval button (`approved: true` or `status: 'approved'`), agents **MUST NOT** start implementing things. The agent is required to keep iterating on the specification, answering questions, and providing further details until the human grants explicit approval.
 
-### 4. Native Model Context Protocol (MCP) Server
+### 7. Native Model Context Protocol (MCP) Server
 
 Integrate with Claude Desktop, Cursor, Antigravity, or Windsurf via `zenspec mcp`:
 
@@ -104,13 +108,13 @@ Integrate with Claude Desktop, Cursor, Antigravity, or Windsurf via `zenspec mcp
 }
 ```
 
-### 4. Interactive Callouts & Ratings
+### 8. Interactive Callouts & Ratings
 
 - Single Choice: `> [!QUESTION] Which database should we use?`
 - Multi-Select: `> [!QUESTION:MULTI] Which modules to enable?`
 - Rating Scale: `> [!QUESTION:RATING] Rate the caching strategy`
 
-### 5. Automated ADR Generator (`zenspec adr`)
+### 9. Automated ADR Generator (`zenspec adr`)
 
 Instantly turn completed review conversations and selected decision cards into standard MADR (Markdown Architectural Decision Records) in `docs/adr/`.
 

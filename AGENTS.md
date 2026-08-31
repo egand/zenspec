@@ -29,6 +29,9 @@ npm run format:check    # Prettier validation
 4. **Plan & Artifact Approval Gate**: Without clicking the '✅ Approve Plan' button in the browser (or receiving `status: "approved"` / `approved: true`), the agent **MUST NOT START** implementing features, modifying source code, or scaffolding files. The agent must strictly keep updating the spec, answering review questions, and providing further details.
 5. **Dual-Mode**: Raw `.html` artifacts are seamlessly supported in sandboxed iframes for rich UI prototypes.
 6. **Clean Git Source**: Third-party runtime dependencies are managed via `package.json` and bundled into `dist/` during `npm run build`. No raw vendor JavaScript files are committed to Git.
+7. **Live In-Memory Hot Reloading**: File edits on disk automatically trigger instant in-place re-rendering via Server-Sent Events (`ServerEvent.Reload`) while preserving reviewer scroll positions and highlighting modified lines.
+8. **Multi-Document File Explorer**: Projects with multiple `.md` / `.html` files are reviewed in a single browser session with the Left File Explorer.
+9. **Resolved Feedback Tracking**: All addressed reviewer items transition to the Resolved queue section with interactive jump pointers that highlight agent modifications on the document canvas.
 
 ## UI Verification & Screenshot Standards
 

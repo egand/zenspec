@@ -46,17 +46,18 @@ ZenSpec opens Markdown or HTML documents in a browser for interactive line-level
    npx zenspec progress docs/plans/<topic>.md --step "Running test suite" --status running
    ```
 
-5. **Wait for Human Feedback & Plan Approval (If started without `--poll`)**:
+5. **Wait for Human Feedback & Plan Approval (If started in background)**:
 
    ```bash
    npx zenspec poll docs/plans/<topic>.md
    ```
 
-6. **Iterate on Specification (Gated Implementation)**:
+6. **Iterate on Specification (Live Hot Reload & Gated Implementation)**:
    - **CRITICAL GATE**: Without explicit approval (user clicking the '✅ Approve Plan' button in the browser, returning `status: "approved"` or `approved: true`), the agent **MUST NOT START** implementing code, modifying project files, or scaffolding components.
    - The agent must continuously update the specification, answer questions, or provide clarifications based on the feedback payload (`{ startLine, endLine, selectedText, replacementText, feedback }`).
    - Use `replace_file_content` to surgically update the exact lines in `docs/plans/<topic>.md`.
-   - The reviewer sees resolved questions in the **Resolved** queue section, with clickable pointers that jump to and highlight your modifications in the document canvas.
+   - **⚡ Live Hot Reloading**: Whenever you edit a file on disk, the browser automatically re-renders in place via Server-Sent Events, preserving the reviewer's scroll position and highlighting modified lines without needing a manual refresh or restarting `zenspec`.
+   - **Resolved Feedback Pointers**: The reviewer sees addressed questions in the **Resolved** queue section, with **📍 Jump & Highlight** buttons that smoothly scroll to and illuminate your modifications with a glowing pulse animation.
    - Reply via CLI: `zenspec poll docs/plans/<topic>.md --agent-reply "Updated Section 2 with feedback"`.
    - **Terminal Conciseness**: Keep terminal messages short and direct (1-2 sentences with links to changed lines). Do NOT duplicate or re-summarize what is already visible in the browser canvas to avoid wasting tokens.
 
