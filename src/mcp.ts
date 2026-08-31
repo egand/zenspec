@@ -62,15 +62,19 @@ export function createMcpServer(store = new SessionStore()): Server {
       tools: [
         {
           name: McpToolName.OpenReview,
-
           description:
-            "Start the Zen AXI review daemon and open a Markdown or HTML document in the browser for interactive review.",
+            "Start the ZenSpec review daemon and open a Markdown or HTML document in the browser for interactive human review. MANDATORY GATE: You MUST NOT start implementing features or scaffolding files until the plan is approved (approved: true). Set autoPoll: true to automatically wait for feedback or approval in this call, or call zen_poll_feedback immediately afterwards.",
           inputSchema: {
             type: "object",
             properties: {
               filePath: {
                 type: "string",
                 description: "Path to the Markdown or HTML document to review.",
+              },
+              autoPoll: {
+                type: "boolean",
+                description:
+                  "If true, starts the review session AND immediately waits/polls for human reviewer feedback or plan approval in a single tool call.",
               },
               noOpen: {
                 type: "boolean",
@@ -227,6 +231,79 @@ export function createMcpServer(store = new SessionStore()): Server {
         await open(sessionUrl).catch(() => {});
       }
 
+      if (args?.autoPoll) {
+        if (session.queuedPrompts.length > 0) {
+          const prompts = store.takeQueuedPrompts(session.key);
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  session.approved
+                    ? {
+                        status: PollStatus.Approved,
+                        file: session.filePath,
+                        approved: true,
+                        approvedAt: session.approvedAt,
+                        prompts,
+                        message: "Plan has been explicitly approved by the reviewer.",
+                        sessionEnded: session.ended,
+                        endedBy: session.endedBy,
+                      }
+                    : {
+                        status: PollStatus.Feedback,
+                        file: session.filePath,
+                        prompts,
+                        approved: false,
+                        sessionEnded: session.ended,
+                        endedBy: session.endedBy,
+                      },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        if (session.approved) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    status: PollStatus.Approved,
+                    file: session.filePath,
+                    approved: true,
+                    approvedAt: session.approvedAt,
+                    message:
+                      "Plan has been explicitly approved by the reviewer. You may now proceed with implementation.",
+                    sessionEnded: session.ended,
+                    endedBy: session.endedBy,
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+
+        const pollResult = await new Promise((resolve) => {
+          store.registerPollWaiter(session.key, (res) => resolve(res));
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(pollResult, null, 2),
+            },
+          ],
+        };
+      }
+
       return {
         content: [
           {
@@ -240,6 +317,8 @@ export function createMcpServer(store = new SessionStore()): Server {
                 file: canonical,
                 docType: session.docType,
                 approved: session.approved,
+                instruction:
+                  "MANDATORY: Call zen_poll_feedback next to wait for human review and plan approval before implementing any code.",
               },
               null,
               2,

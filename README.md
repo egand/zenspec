@@ -45,6 +45,7 @@ npm install -g zenspec
 | Command                          | Description                                                        |
 | :------------------------------- | :----------------------------------------------------------------- |
 | `zenspec <file\|dir>`            | Start daemon and open interactive review session in browser        |
+| `zenspec <file\|dir> --poll`     | Start review and immediately wait for human feedback & approval    |
 | `zenspec poll <file>`            | Long-poll until human submits feedback or ends session             |
 | `zenspec approve <file>`         | Approve plan & authorize agent to proceed with implementation      |
 | `zenspec reply <file> -m "..."`  | Push agent progress/chat message to the browser conversation       |
@@ -58,6 +59,7 @@ npm install -g zenspec
 
 ### Flags
 
+- `-p, --poll`: Launch review session and automatically long-poll until feedback is submitted or the plan is approved (eliminates forgotten polls).
 - `--share`: Launch secure remote sharing tunnel for GitHub Codespaces, remote containers, or LAN collaboration.
 - `--no-open`: Register and serve session without launching the default browser.
 - `--port <number>`: Specify custom port (default: `4388`).
@@ -67,15 +69,23 @@ npm install -g zenspec
 
 ## ⚡ Highlights & Key Features
 
-### 1. Ghost Diffs & Change Tracking
+### 1. Multi-Document File Explorer
 
-When an agent edits the reviewed Markdown file on disk, `zenspec` computes line diffs and renders clean visual gutter diff indicators directly in the browser canvas.
+Review entire plan directories or projects in a single browser window. The Left Sidebar **Documents Explorer** displays all workspace `.md` and `.html` files, their approval status, and queued comments, allowing seamless document switching without restarting servers or browser tabs.
 
-### 2. Suggest Edit Mode
+### 2. Resolved Feedback & Modification Highlighting
+
+When the reviewer asks a question or suggests a change and the agent applies edits or replies, the item transitions to the **Resolved** section in the queue. Clicking **📍 Jump to change** smoothly scrolls the document canvas directly to the modified lines and highlights them with a glowing pulse animation.
+
+### 3. All-in-One Auto-Polling (`--poll` / `autoPoll`)
+
+Prevents AI coding agents from dropping review loops. A single command (`npx zenspec docs/plans/plan.md --poll`) or MCP call (`zen_open_review` with `autoPoll: true`) opens the reviewer and synchronously waits for feedback or plan approval before proceeding.
+
+### 4. Suggest Edit Mode
 
 Reviewers can highlight any text and click **Suggest Edit** to provide proposed replacement text. The agent receives `{ startLine, endLine, selectedText, replacementText }` for instant, one-call application via `replace_file_content`.
 
-### 3. Plan & Artifact Approval Gate (✅ Approve Plan)
+### 5. Plan & Artifact Approval Gate (✅ Approve Plan)
 
 The UI includes a dedicated **Approve Plan** button (`a` shortcut). Without clicking this approval button (`approved: true` or `status: 'approved'`), agents **MUST NOT** start implementing things. The agent is required to keep iterating on the specification, answering questions, and providing further details until the human grants explicit approval.
 
