@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { SessionState } from "./types.js";
+import { SessionState, ActorRole } from "./types.js";
 
 export interface ParsedQuestionDecision {
   title: string;
@@ -122,7 +122,7 @@ export function generateADRDocument(options: {
   if (session.chatHistory && session.chatHistory.length > 0) {
     chatTranscriptSection = `## Review & Dialogue Transcript\n\n`;
     for (const msg of session.chatHistory) {
-      const senderBadge = msg.sender === "agent" ? "🤖 Agent" : "👤 Reviewer";
+      const senderBadge = msg.sender === ActorRole.Agent ? "🤖 Agent" : "👤 Reviewer";
       chatTranscriptSection += `> **${senderBadge}** (${msg.createdAt.slice(11, 19)}):\n> ${msg.text.replace(/\n/g, "\n> ")}\n\n`;
     }
   }

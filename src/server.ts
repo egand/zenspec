@@ -6,7 +6,19 @@ import chokidar from "chokidar";
 import { SessionStore, sessionKey, scanWorkspaceDocuments } from "./session-store.js";
 import { renderMarkdownWithSourceLines } from "./sourcemap.js";
 import { generateADRDocument } from "./adr.js";
-import { PollResponse, PromptItem, AgentProgressUpdate } from "./types.js";
+import {
+  PollResponse,
+  PromptItem,
+  AgentProgressUpdate,
+  SERVER_DEFAULTS,
+  ServerEvent,
+  PollStatus,
+  AgentPresence,
+  ActorRole,
+  DocType,
+  ProgressStatus,
+  PromptTag,
+} from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,8 +53,8 @@ export class ZenServer {
   private sseClients: Map<string, Set<http.ServerResponse>> = new Map();
 
   constructor(options: ServerOptions = {}) {
-    this.port = options.port !== undefined ? options.port : 4388;
-    this.host = options.host || "127.0.0.1";
+    this.port = options.port !== undefined ? options.port : SERVER_DEFAULTS.PORT;
+    this.host = options.host || SERVER_DEFAULTS.HOST;
     this.store = options.store || new SessionStore();
     this.server = http.createServer(this.handleRequest.bind(this));
   }
@@ -105,13 +117,13 @@ export class ZenServer {
           if (fs.existsSync(filePath)) {
             const newContent = fs.readFileSync(filePath, "utf8");
             const diffs = this.store.recordFileUpdate(key, newContent);
-            this.emitSSE(key, "reload", {
+            this.emitSSE(key, ServerEvent.Reload, {
               timestamp: Date.now(),
               diffs,
             });
           }
         } catch {
-          this.emitSSE(key, "reload", { timestamp: Date.now() });
+          this.emitSSE(key, ServerEvent.Reload, { timestamp: Date.now() });
         }
       }, 50);
     });
@@ -226,57 +238,65 @@ export class ZenServer {
       this.watchFile(key, session.canonicalPath);
 
       // Send initial presence, progress, diffs, and approval state
-      res.write(`event: presence\ndata: ${JSON.stringify({ presence: session.presence })}\n\n`);
+      res.write(
+        `event: ${ServerEvent.Presence}\ndata: ${JSON.stringify({ presence: session.presence })}\n\n`,
+      );
       if (session.approved) {
         res.write(
-          `event: approved\ndata: ${JSON.stringify({ approved: true, approvedAt: session.approvedAt })}\n\n`,
+          `event: ${ServerEvent.Approved}\ndata: ${JSON.stringify({ approved: true, approvedAt: session.approvedAt })}\n\n`,
         );
       }
       if (session.activeProgress) {
-        res.write(`event: progress\ndata: ${JSON.stringify(session.activeProgress)}\n\n`);
+        res.write(
+          `event: ${ServerEvent.Progress}\ndata: ${JSON.stringify(session.activeProgress)}\n\n`,
+        );
       }
       if (session.diffs && session.diffs.length > 0) {
-        res.write(`event: diff\ndata: ${JSON.stringify({ diffs: session.diffs })}\n\n`);
+        res.write(
+          `event: ${ServerEvent.Diff}\ndata: ${JSON.stringify({ diffs: session.diffs })}\n\n`,
+        );
       }
       if (session.ended) {
-        res.write(`event: ended\ndata: ${JSON.stringify({ endedBy: session.endedBy })}\n\n`);
+        res.write(
+          `event: ${ServerEvent.Ended}\ndata: ${JSON.stringify({ endedBy: session.endedBy })}\n\n`,
+        );
       }
 
       // Event listeners
       const onPresence = (presence: string) => {
-        res.write(`event: presence\ndata: ${JSON.stringify({ presence })}\n\n`);
+        res.write(`event: ${ServerEvent.Presence}\ndata: ${JSON.stringify({ presence })}\n\n`);
       };
       const onProgress = (prog: any) => {
-        res.write(`event: progress\ndata: ${JSON.stringify(prog)}\n\n`);
+        res.write(`event: ${ServerEvent.Progress}\ndata: ${JSON.stringify(prog)}\n\n`);
       };
       const onDiff = (diffData: any) => {
-        res.write(`event: diff\ndata: ${JSON.stringify(diffData)}\n\n`);
+        res.write(`event: ${ServerEvent.Diff}\ndata: ${JSON.stringify(diffData)}\n\n`);
       };
       const onChat = (msg: any) => {
-        res.write(`event: chat\ndata: ${JSON.stringify(msg)}\n\n`);
+        res.write(`event: ${ServerEvent.Chat}\ndata: ${JSON.stringify(msg)}\n\n`);
       };
       const onApproved = (approvedData: any) => {
-        res.write(`event: approved\ndata: ${JSON.stringify(approvedData)}\n\n`);
+        res.write(`event: ${ServerEvent.Approved}\ndata: ${JSON.stringify(approvedData)}\n\n`);
       };
       const onEnded = (ended: any) => {
-        res.write(`event: ended\ndata: ${JSON.stringify(ended)}\n\n`);
+        res.write(`event: ${ServerEvent.Ended}\ndata: ${JSON.stringify(ended)}\n\n`);
       };
 
-      this.store.on(`presence:${key}`, onPresence);
-      this.store.on(`progress:${key}`, onProgress);
-      this.store.on(`diff:${key}`, onDiff);
-      this.store.on(`chat:${key}`, onChat);
-      this.store.on(`approved:${key}`, onApproved);
-      this.store.on(`ended:${key}`, onEnded);
+      this.store.on(`${ServerEvent.Presence}:${key}`, onPresence);
+      this.store.on(`${ServerEvent.Progress}:${key}`, onProgress);
+      this.store.on(`${ServerEvent.Diff}:${key}`, onDiff);
+      this.store.on(`${ServerEvent.Chat}:${key}`, onChat);
+      this.store.on(`${ServerEvent.Approved}:${key}`, onApproved);
+      this.store.on(`${ServerEvent.Ended}:${key}`, onEnded);
 
       req.on("close", () => {
         clientSet?.delete(res);
-        this.store.off(`presence:${key}`, onPresence);
-        this.store.off(`progress:${key}`, onProgress);
-        this.store.off(`diff:${key}`, onDiff);
-        this.store.off(`chat:${key}`, onChat);
-        this.store.off(`approved:${key}`, onApproved);
-        this.store.off(`ended:${key}`, onEnded);
+        this.store.off(`${ServerEvent.Presence}:${key}`, onPresence);
+        this.store.off(`${ServerEvent.Progress}:${key}`, onProgress);
+        this.store.off(`${ServerEvent.Diff}:${key}`, onDiff);
+        this.store.off(`${ServerEvent.Chat}:${key}`, onChat);
+        this.store.off(`${ServerEvent.Approved}:${key}`, onApproved);
+        this.store.off(`${ServerEvent.Ended}:${key}`, onEnded);
       });
       return;
     }
@@ -311,8 +331,8 @@ export class ZenServer {
       const raw = fs.readFileSync(filePathToRead, "utf8");
       const stat = fs.statSync(filePathToRead);
       const ext = path.extname(filePathToRead).toLowerCase();
-      const docType = ext === ".html" || ext === ".htm" ? "html" : "markdown";
-      const renderedHtml = docType === "markdown" ? renderMarkdownWithSourceLines(raw) : raw;
+      const docType = ext === ".html" || ext === ".htm" ? DocType.Html : DocType.Markdown;
+      const renderedHtml = docType === DocType.Markdown ? renderMarkdownWithSourceLines(raw) : raw;
 
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
@@ -396,7 +416,7 @@ export class ZenServer {
         id: `prog-${Date.now()}`,
         timestamp: new Date().toISOString(),
         step: body?.step || "Executing step...",
-        status: body?.status || "running",
+        status: body?.status || ProgressStatus.Running,
         details: body?.details,
       };
 
@@ -430,15 +450,15 @@ export class ZenServer {
         return;
       }
 
-      this.store.setPresence(key, "listening");
+      this.store.setPresence(key, AgentPresence.Listening);
 
       if (session.queuedPrompts.length > 0) {
         const prompts = this.store.takeQueuedPrompts(key);
-        this.store.setPresence(key, "working");
+        this.store.setPresence(key, AgentPresence.Working);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
-            status: "feedback",
+            status: PollStatus.Feedback,
             file: session.filePath,
             prompts,
             sessionEnded: session.ended,
@@ -449,14 +469,14 @@ export class ZenServer {
       }
 
       if (session.ended) {
-        this.store.setPresence(key, "waiting");
+        this.store.setPresence(key, AgentPresence.Waiting);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
-            status: "ended",
+            status: PollStatus.Ended,
             file: session.filePath,
             endedBy: session.endedBy,
-            message: `Session concluded by ${session.endedBy || "user"}.`,
+            message: `Session concluded by ${session.endedBy || ActorRole.User}.`,
           } as PollResponse),
         );
         return;
@@ -469,10 +489,10 @@ export class ZenServer {
         if (isDone) return;
         isDone = true;
         clearInterval(heartbeat);
-        if (pollRes.status === "feedback") {
-          this.store.setPresence(key, "working");
+        if (pollRes.status === PollStatus.Feedback) {
+          this.store.setPresence(key, AgentPresence.Working);
         } else {
-          this.store.setPresence(key, "waiting");
+          this.store.setPresence(key, AgentPresence.Waiting);
         }
         res.end(JSON.stringify(pollRes));
       };
@@ -491,8 +511,8 @@ export class ZenServer {
         isDone = true;
         clearInterval(heartbeat);
         this.store.removePollWaiter(key, waiter);
-        if (session.presence === "listening") {
-          this.store.setPresence(key, "waiting");
+        if (session.presence === AgentPresence.Listening) {
+          this.store.setPresence(key, AgentPresence.Waiting);
         }
       });
       return;
@@ -516,7 +536,7 @@ export class ZenServer {
       for (const p of prompts) {
         this.store.queuePrompt(key, {
           id: p.id || `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          tag: p.tag || "annotation",
+          tag: p.tag || PromptTag.Annotation,
           text: p.text || "",
           target: p.target,
           createdAt: p.createdAt || new Date().toISOString(),
@@ -524,7 +544,7 @@ export class ZenServer {
       }
 
       if (body?.endSession) {
-        this.store.endSession(key, "user");
+        this.store.endSession(key, ActorRole.User);
       }
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -548,10 +568,10 @@ export class ZenServer {
       const messageText = body?.message || body?.text || "";
 
       if (messageText) {
-        this.store.addChatMessage(key, "agent", messageText);
+        this.store.addChatMessage(key, ActorRole.Agent, messageText);
       }
 
-      this.store.setPresence(key, "waiting");
+      this.store.setPresence(key, AgentPresence.Waiting);
 
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ success: true }));
@@ -599,7 +619,7 @@ export class ZenServer {
       }
 
       const body = await readJsonBody(req);
-      const endedBy = body?.endedBy || "user";
+      const endedBy = body?.endedBy || ActorRole.User;
       this.store.endSession(key, endedBy);
 
       res.writeHead(200, { "Content-Type": "application/json" });

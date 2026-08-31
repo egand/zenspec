@@ -8,7 +8,17 @@ import {
   computeLineDiff,
   scanWorkspaceDocuments,
 } from "../src/session-store.js";
-import { PromptItem, PollResponse } from "../src/types.js";
+import {
+  PromptItem,
+  PollResponse,
+  DocType,
+  AgentPresence,
+  ActorRole,
+  PollStatus,
+  PromptTag,
+  TargetType,
+  ProgressStatus,
+} from "../src/types.js";
 
 describe("SessionStore & Long-Polling Coordinator", () => {
   let store: SessionStore;
@@ -29,9 +39,9 @@ describe("SessionStore & Long-Polling Coordinator", () => {
 
   it("creates and retrieves session state", () => {
     const session = store.getOrCreateSession("/fake/path/architecture.md");
-    expect(session.docType).toBe("markdown");
+    expect(session.docType).toBe(DocType.Markdown);
     expect(session.ended).toBe(false);
-    expect(session.presence).toBe("waiting");
+    expect(session.presence).toBe(AgentPresence.Waiting);
 
     const fetched = store.getSession(session.key);
     expect(fetched).toBeDefined();
@@ -50,10 +60,10 @@ describe("SessionStore & Long-Polling Coordinator", () => {
 
     const prompt: PromptItem = {
       id: "p1",
-      tag: "annotation",
+      tag: PromptTag.Annotation,
       text: "Change database to SQLite",
       target: {
-        type: "markdown-range",
+        type: TargetType.MarkdownRange,
         startLine: 10,
         endLine: 12,
         selectedText: "PostgreSQL",
@@ -66,8 +76,8 @@ describe("SessionStore & Long-Polling Coordinator", () => {
 
     expect(receivedResponse).not.toBeNull();
     const res = receivedResponse as PollResponse | null;
-    expect(res?.status).toBe("feedback");
-    if (res && res.status === "feedback") {
+    expect(res?.status).toBe(PollStatus.Feedback);
+    if (res && res.status === PollStatus.Feedback) {
       expect(res.prompts.length).toBe(1);
       expect(res.prompts[0].text).toBe("Change database to SQLite");
     }
@@ -81,13 +91,13 @@ describe("SessionStore & Long-Polling Coordinator", () => {
       endedResponse = res;
     });
 
-    store.endSession(session.key, "user");
+    store.endSession(session.key, ActorRole.User);
 
     expect(endedResponse).not.toBeNull();
     const res = endedResponse as PollResponse | null;
-    expect(res?.status).toBe("ended");
-    if (res && res.status === "ended") {
-      expect(res.endedBy).toBe("user");
+    expect(res?.status).toBe(PollStatus.Ended);
+    if (res && res.status === PollStatus.Ended) {
+      expect(res.endedBy).toBe(ActorRole.User);
     }
   });
 
@@ -105,7 +115,7 @@ describe("SessionStore & Long-Polling Coordinator", () => {
     expect(session.approved).toBe(true);
     expect(session.approvedAt).toBeDefined();
     expect(pollResult).not.toBeNull();
-    expect((pollResult as any)?.status).toBe("approved");
+    expect((pollResult as any)?.status).toBe(PollStatus.Approved);
     expect((pollResult as any)?.approved).toBe(true);
   });
 
@@ -126,7 +136,7 @@ describe("SessionStore & Long-Polling Coordinator", () => {
     });
 
     expect(firstResponse).not.toBeNull();
-    expect((firstResponse as any)?.status).toBe("superseded");
+    expect((firstResponse as any)?.status).toBe(PollStatus.Superseded);
     expect(secondResponse).toBeNull();
   });
 
@@ -142,7 +152,7 @@ describe("SessionStore & Long-Polling Coordinator", () => {
 
     store.queuePrompt(session.key, {
       id: "p-rm",
-      tag: "chat",
+      tag: PromptTag.Chat,
       text: "Unseen",
       createdAt: new Date().toISOString(),
     });
@@ -153,11 +163,15 @@ describe("SessionStore & Long-Polling Coordinator", () => {
   it("manages agent chat history and presence transitions", () => {
     const session = store.getOrCreateSession(`/fake/path/chat-${Date.now()}.md`);
 
-    store.setPresence(session.key, "listening");
-    expect(session.presence).toBe("listening");
+    store.setPresence(session.key, AgentPresence.Listening);
+    expect(session.presence).toBe(AgentPresence.Listening);
 
-    const msg = store.addChatMessage(session.key, "agent", "Updated lines 14-16 with feedback.");
-    expect(msg.sender).toBe("agent");
+    const msg = store.addChatMessage(
+      session.key,
+      ActorRole.Agent,
+      "Updated lines 14-16 with feedback.",
+    );
+    expect(msg.sender).toBe(ActorRole.Agent);
     expect(session.chatHistory.length).toBe(1);
   });
 
@@ -228,11 +242,11 @@ describe("SessionStore & Long-Polling Coordinator", () => {
       id: "p-1",
       timestamp: new Date().toISOString(),
       step: "Compiling TypeScript",
-      status: "running",
+      status: ProgressStatus.Running,
       details: "Running esbuild bundle",
     });
 
     expect(session.activeProgress?.step).toBe("Compiling TypeScript");
-    expect(session.activeProgress?.status).toBe("running");
+    expect(session.activeProgress?.status).toBe(ProgressStatus.Running);
   });
 });

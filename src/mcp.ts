@@ -13,11 +13,15 @@ import open from "open";
 import { SessionStore, sessionKey } from "./session-store.js";
 import { generateADRDocument, resolveDefaultAdrPath } from "./adr.js";
 import { ZenServer } from "./server.js";
+import { McpToolName, PollStatus, ActorRole, ProgressStatus, SERVER_DEFAULTS } from "./types.js";
 
-const DEFAULT_PORT = 4388;
-const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_PORT = SERVER_DEFAULTS.PORT;
+const DEFAULT_HOST = SERVER_DEFAULTS.HOST;
 
-async function isServerRunning(port = DEFAULT_PORT, host = DEFAULT_HOST): Promise<boolean> {
+async function isServerRunning(
+  port: number = DEFAULT_PORT,
+  host: string = DEFAULT_HOST,
+): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.get(`http://${host}:${port}/health`, (res) => {
       resolve(res.statusCode === 200);
@@ -30,7 +34,10 @@ async function isServerRunning(port = DEFAULT_PORT, host = DEFAULT_HOST): Promis
   });
 }
 
-async function ensureServerRunning(port = DEFAULT_PORT, host = DEFAULT_HOST): Promise<void> {
+async function ensureServerRunning(
+  port: number = DEFAULT_PORT,
+  host: string = DEFAULT_HOST,
+): Promise<void> {
   if (await isServerRunning(port, host)) return;
   const server = new ZenServer({ port, host });
   await server.start();
@@ -54,7 +61,7 @@ export function createMcpServer(store = new SessionStore()): Server {
     return {
       tools: [
         {
-          name: "zen_open_review",
+          name: McpToolName.OpenReview,
 
           description:
             "Start the Zen AXI review daemon and open a Markdown or HTML document in the browser for interactive review.",
@@ -74,7 +81,7 @@ export function createMcpServer(store = new SessionStore()): Server {
           },
         },
         {
-          name: "zen_poll_feedback",
+          name: McpToolName.PollFeedback,
           description:
             "Long-poll until human reviewer submits annotations, suggestions, question selections, or approves the plan. IMPORTANT: If approved is false or status is 'feedback', the agent MUST NOT start implementing features; it must continue updating the spec or providing information.",
           inputSchema: {
@@ -93,7 +100,7 @@ export function createMcpServer(store = new SessionStore()): Server {
           },
         },
         {
-          name: "zen_approve_plan",
+          name: McpToolName.ApprovePlan,
           description:
             "Approve a plan/artifact and authorize the agent to proceed with implementation.",
           inputSchema: {
@@ -112,7 +119,7 @@ export function createMcpServer(store = new SessionStore()): Server {
           },
         },
         {
-          name: "zen_reply",
+          name: McpToolName.Reply,
           description:
             "Send an agent progress note or chat message to the reviewer in the browser.",
           inputSchema: {
@@ -131,7 +138,7 @@ export function createMcpServer(store = new SessionStore()): Server {
           },
         },
         {
-          name: "zen_progress",
+          name: McpToolName.Progress,
           description:
             "Stream live agent execution telemetry (step status, running tests, applying patches) to reviewer topbar.",
           inputSchema: {
@@ -147,7 +154,7 @@ export function createMcpServer(store = new SessionStore()): Server {
               },
               status: {
                 type: "string",
-                enum: ["running", "done", "error"],
+                enum: [ProgressStatus.Running, ProgressStatus.Done, ProgressStatus.Error],
                 description: "Status of the step.",
               },
               details: {
@@ -159,7 +166,7 @@ export function createMcpServer(store = new SessionStore()): Server {
           },
         },
         {
-          name: "zen_end_session",
+          name: McpToolName.EndSession,
           description: "Conclude an active review session as the agent.",
           inputSchema: {
             type: "object",
@@ -173,7 +180,7 @@ export function createMcpServer(store = new SessionStore()): Server {
           },
         },
         {
-          name: "zen_get_status",
+          name: McpToolName.GetStatus,
           description: "List all active Zen AXI review sessions and queued feedback counts.",
           inputSchema: {
             type: "object",
@@ -181,7 +188,7 @@ export function createMcpServer(store = new SessionStore()): Server {
           },
         },
         {
-          name: "zen_export_adr",
+          name: McpToolName.ExportAdr,
           description:
             "Export and materialize answered interactive questions into a standard Architecture Decision Record (ADR).",
           inputSchema: {
@@ -206,7 +213,7 @@ export function createMcpServer(store = new SessionStore()): Server {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
 
-    if (name === "zen_open_review") {
+    if (name === McpToolName.OpenReview) {
       const filePath = String(args?.filePath || "");
       if (!fs.existsSync(filePath)) {
         throw new Error(`File not found: ${filePath}`);
@@ -242,7 +249,7 @@ export function createMcpServer(store = new SessionStore()): Server {
       };
     }
 
-    if (name === "zen_poll_feedback") {
+    if (name === McpToolName.PollFeedback) {
       const filePath = String(args?.filePath || "");
       const canonical = fs.existsSync(filePath)
         ? fs.realpathSync(filePath)
@@ -251,7 +258,7 @@ export function createMcpServer(store = new SessionStore()): Server {
       const session = store.getOrCreateSession(canonical);
 
       if (args?.agentReply) {
-        store.addChatMessage(key, "agent", String(args.agentReply));
+        store.addChatMessage(key, ActorRole.Agent, String(args.agentReply));
       }
 
       if (session.queuedPrompts.length > 0) {
@@ -263,7 +270,7 @@ export function createMcpServer(store = new SessionStore()): Server {
               text: JSON.stringify(
                 session.approved
                   ? {
-                      status: "approved",
+                      status: PollStatus.Approved,
                       file: session.filePath,
                       approved: true,
                       approvedAt: session.approvedAt,
@@ -273,7 +280,7 @@ export function createMcpServer(store = new SessionStore()): Server {
                       endedBy: session.endedBy,
                     }
                   : {
-                      status: "feedback",
+                      status: PollStatus.Feedback,
                       file: session.filePath,
                       prompts,
                       approved: false,
@@ -292,7 +299,7 @@ export function createMcpServer(store = new SessionStore()): Server {
             {
               type: "text",
               text: JSON.stringify({
-                status: "approved",
+                status: PollStatus.Approved,
                 file: session.filePath,
                 approved: true,
                 approvedAt: session.approvedAt,
@@ -312,11 +319,11 @@ export function createMcpServer(store = new SessionStore()): Server {
             {
               type: "text",
               text: JSON.stringify({
-                status: "ended",
+                status: PollStatus.Ended,
                 file: session.filePath,
                 approved: session.approved,
                 endedBy: session.endedBy,
-                message: `Session was concluded by ${session.endedBy || "user"}.`,
+                message: `Session was concluded by ${session.endedBy || ActorRole.User}.`,
               }),
             },
           ],
@@ -337,7 +344,7 @@ export function createMcpServer(store = new SessionStore()): Server {
       };
     }
 
-    if (name === "zen_approve_plan") {
+    if (name === McpToolName.ApprovePlan) {
       const filePath = String(args?.filePath || "");
       const canonical = fs.existsSync(filePath)
         ? fs.realpathSync(filePath)
@@ -361,14 +368,14 @@ export function createMcpServer(store = new SessionStore()): Server {
       };
     }
 
-    if (name === "zen_reply") {
+    if (name === McpToolName.Reply) {
       const filePath = String(args?.filePath || "");
       const message = String(args?.message || "");
       const canonical = fs.existsSync(filePath)
         ? fs.realpathSync(filePath)
         : path.resolve(filePath);
       const session = store.getOrCreateSession(canonical);
-      const msg = store.addChatMessage(session.key, "agent", message);
+      const msg = store.addChatMessage(session.key, ActorRole.Agent, message);
 
       return {
         content: [
@@ -380,10 +387,10 @@ export function createMcpServer(store = new SessionStore()): Server {
       };
     }
 
-    if (name === "zen_progress") {
+    if (name === McpToolName.Progress) {
       const filePath = String(args?.filePath || "");
       const step = String(args?.step || "");
-      const status = (args?.status as any) || "running";
+      const status = (args?.status as any) || ProgressStatus.Running;
       const details = args?.details ? String(args.details) : undefined;
       const canonical = fs.existsSync(filePath)
         ? fs.realpathSync(filePath)
@@ -410,25 +417,25 @@ export function createMcpServer(store = new SessionStore()): Server {
       };
     }
 
-    if (name === "zen_end_session") {
+    if (name === McpToolName.EndSession) {
       const filePath = String(args?.filePath || "");
       const canonical = fs.existsSync(filePath)
         ? fs.realpathSync(filePath)
         : path.resolve(filePath);
       const session = store.getOrCreateSession(canonical);
-      store.endSession(session.key, "agent");
+      store.endSession(session.key, ActorRole.Agent);
 
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify({ success: true, endedBy: "agent" }),
+            text: JSON.stringify({ success: true, endedBy: ActorRole.Agent }),
           },
         ],
       };
     }
 
-    if (name === "zen_get_status") {
+    if (name === McpToolName.GetStatus) {
       const sessions = store.getAllSessions();
       return {
         content: [
@@ -440,7 +447,7 @@ export function createMcpServer(store = new SessionStore()): Server {
       };
     }
 
-    if (name === "zen_export_adr") {
+    if (name === McpToolName.ExportAdr) {
       const filePath = String(args?.filePath || "");
       if (!fs.existsSync(filePath)) {
         throw new Error(`File not found: ${filePath}`);

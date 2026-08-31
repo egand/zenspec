@@ -5,6 +5,14 @@ import path from "node:path";
 import os from "node:os";
 import { ZenServer } from "../src/server.js";
 import { SessionStore } from "../src/session-store.js";
+import {
+  DocType,
+  PromptTag,
+  TargetType,
+  PollStatus,
+  ProgressStatus,
+  ActorRole,
+} from "../src/types.js";
 
 describe("ZenServer HTTP & API Endpoints", () => {
   let server: ZenServer;
@@ -41,7 +49,7 @@ describe("ZenServer HTTP & API Endpoints", () => {
   it("serves document content and rendered HTML via /api/:key/document", async () => {
     const data: any = await fetchJson(`http://127.0.0.1:${port}/api/${testKey}/document`);
     expect(data.key).toBe(testKey);
-    expect(data.docType).toBe("markdown");
+    expect(data.docType).toBe(DocType.Markdown);
     expect(data.renderedHtml).toContain("<h1");
     expect(data.renderedHtml).toContain("Test Spec");
   });
@@ -57,10 +65,10 @@ describe("ZenServer HTTP & API Endpoints", () => {
     const postRes: any = await postJson(`http://127.0.0.1:${port}/api/${testKey}/prompts`, {
       prompts: [
         {
-          tag: "annotation",
+          tag: PromptTag.Annotation,
           text: "Please add validation logic.",
           target: {
-            type: "markdown-range",
+            type: TargetType.MarkdownRange,
             startLine: 3,
             endLine: 3,
           },
@@ -73,7 +81,7 @@ describe("ZenServer HTTP & API Endpoints", () => {
 
     // Verify poll returned the feedback
     const pollData: any = await pollPromise;
-    expect(pollData.status).toBe("feedback");
+    expect(pollData.status).toBe(PollStatus.Feedback);
     expect(pollData.prompts.length).toBe(1);
     expect(pollData.prompts[0].text).toBe("Please add validation logic.");
   });
@@ -91,7 +99,7 @@ describe("ZenServer HTTP & API Endpoints", () => {
   it("accepts live telemetry progress updates via POST /api/:key/progress", async () => {
     const postRes: any = await postJson(`http://127.0.0.1:${port}/api/${testKey}/progress`, {
       step: "Refactoring database migrations",
-      status: "running",
+      status: ProgressStatus.Running,
     });
     expect(postRes.success).toBe(true);
 
@@ -125,13 +133,13 @@ describe("ZenServer HTTP & API Endpoints", () => {
 
   it("marks session ended via POST /api/:key/end", async () => {
     const endRes: any = await postJson(`http://127.0.0.1:${port}/api/${testKey}/end`, {
-      endedBy: "agent",
+      endedBy: ActorRole.Agent,
     });
     expect(endRes.success).toBe(true);
 
     const pollRes: any = await fetchJson(`http://127.0.0.1:${port}/api/poll?key=${testKey}`);
-    expect(pollRes.status).toBe("ended");
-    expect(pollRes.endedBy).toBe("agent");
+    expect(pollRes.status).toBe(PollStatus.Ended);
+    expect(pollRes.endedBy).toBe(ActorRole.Agent);
   });
 
   it("returns 404 for non-existent session key on document and ADR routes", async () => {
