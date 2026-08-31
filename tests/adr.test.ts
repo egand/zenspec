@@ -64,6 +64,7 @@ describe("ADR Generation & Resolution", () => {
       canonicalPath: "/project/docs/plans/storage-rfc.md",
       docType: DocType.Markdown,
       queuedPrompts: [],
+      promptHistory: [],
       chatHistory: [
         {
           id: "msg-1",
@@ -104,6 +105,7 @@ describe("ADR Generation & Resolution", () => {
       canonicalPath: "/project/docs/plans/plain.md",
       docType: DocType.Markdown,
       queuedPrompts: [],
+      promptHistory: [],
       chatHistory: [],
       presence: AgentPresence.Waiting,
       lastModified: Date.now(),

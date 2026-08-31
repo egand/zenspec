@@ -1,6 +1,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import chokidar from "chokidar";
 import { SessionStore, sessionKey, scanWorkspaceDocuments } from "./session-store.js";
@@ -104,31 +105,111 @@ export class ZenServer {
     if (this.watchers.has(key)) return;
     if (!fs.existsSync(filePath)) return;
 
-    const watcher = chokidar.watch(filePath, {
-      ignoreInitial: true,
-      awaitWriteFinish: { stabilityThreshold: 40, pollInterval: 20 },
-    });
+    try {
+      const watcher = chokidar.watch(filePath, {
+        ignoreInitial: true,
+        awaitWriteFinish: { stabilityThreshold: 40, pollInterval: 20 },
+      });
 
-    let debounceTimer: NodeJS.Timeout | null = null;
-    watcher.on("all", () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        try {
-          if (fs.existsSync(filePath)) {
-            const newContent = fs.readFileSync(filePath, "utf8");
-            const diffs = this.store.recordFileUpdate(key, newContent);
-            this.emitSSE(key, ServerEvent.Reload, {
-              timestamp: Date.now(),
-              diffs,
-            });
+      watcher.on("error", () => {});
+
+      let debounceTimer: NodeJS.Timeout | null = null;
+      watcher.on("all", () => {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          try {
+            if (fs.existsSync(filePath)) {
+              const newContent = fs.readFileSync(filePath, "utf8");
+              const diffs = this.store.recordFileUpdate(key, newContent);
+              this.emitSSE(key, ServerEvent.Reload, {
+                timestamp: Date.now(),
+                diffs,
+              });
+            }
+          } catch {
+            this.emitSSE(key, ServerEvent.Reload, { timestamp: Date.now() });
           }
-        } catch {
-          this.emitSSE(key, ServerEvent.Reload, { timestamp: Date.now() });
-        }
-      }, 50);
-    });
+        }, 50);
+      });
 
-    this.watchers.set(key, watcher);
+      this.watchers.set(key, watcher);
+    } catch {
+      // Ignore watch failure
+    }
+  }
+
+  public watchWorkspace(key: string, workspaceRoot: string): void {
+    const wsWatchKey = `ws:${key}`;
+    if (this.watchers.has(wsWatchKey)) return;
+    if (!fs.existsSync(workspaceRoot)) return;
+
+    // Do not watch system root or root temp dir
+    const tmp = os.tmpdir();
+    if (
+      workspaceRoot === tmp ||
+      workspaceRoot === path.dirname(tmp) ||
+      workspaceRoot === "/" ||
+      workspaceRoot === "/tmp" ||
+      workspaceRoot === "/var"
+    ) {
+      return;
+    }
+
+    try {
+      const watcher = chokidar.watch(workspaceRoot, {
+        ignoreInitial: true,
+        depth: 3,
+        ignored: (p) =>
+          p.includes("node_modules") ||
+          p.includes(".git") ||
+          p.includes("dist") ||
+          p.includes("coverage") ||
+          p.includes("Socket") ||
+          p.includes("socket"),
+        awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
+      });
+
+      watcher.on("error", () => {});
+
+      let debounceTimer: NodeJS.Timeout | null = null;
+      watcher.on("all", (_event, changedPath) => {
+        const ext = path.extname(changedPath).toLowerCase();
+        if (ext === ".md" || ext === ".markdown" || ext === ".html" || ext === ".htm") {
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            const files = scanWorkspaceDocuments(workspaceRoot, this.store);
+            this.emitSSE(key, ServerEvent.Workspace, {
+              workspaceRoot,
+              files,
+              timestamp: Date.now(),
+            });
+
+            if (fs.existsSync(changedPath)) {
+              try {
+                const canonicalChanged = fs.realpathSync(changedPath);
+                const fileSession = this.store.getSessionByFile(canonicalChanged);
+                if (fileSession) {
+                  const newContent = fs.readFileSync(canonicalChanged, "utf8");
+                  const diffs = this.store.recordFileUpdate(fileSession.key, newContent);
+                  this.emitSSE(key, ServerEvent.Reload, {
+                    file: canonicalChanged,
+                    relPath: path.relative(workspaceRoot, canonicalChanged),
+                    timestamp: Date.now(),
+                    diffs,
+                  });
+                }
+              } catch {
+                // Ignore
+              }
+            }
+          }, 80);
+        }
+      });
+
+      this.watchers.set(wsWatchKey, watcher);
+    } catch {
+      // Ignore watch failure
+    }
   }
 
   private emitSSE(key: string, event: string, data: any): void {
@@ -215,7 +296,7 @@ export class ZenServer {
       const session = this.store.getSession(key);
 
       if (!session) {
-        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.writeHead(404, { "Content-Type": "application/json" });
         res.end("Session not found");
         return;
       }
@@ -236,8 +317,10 @@ export class ZenServer {
       clientSet.add(res);
 
       this.watchFile(key, session.canonicalPath);
+      const wsRoot = session.workspaceRoot || path.dirname(session.canonicalPath);
+      this.watchWorkspace(key, wsRoot);
 
-      // Send initial presence, progress, diffs, and approval state
+      // Send initial presence, progress, diffs, approval state, prompts, and workspace
       res.write(
         `event: ${ServerEvent.Presence}\ndata: ${JSON.stringify({ presence: session.presence })}\n\n`,
       );
@@ -262,6 +345,21 @@ export class ZenServer {
         );
       }
 
+      // Initial prompts and workspace files
+      res.write(
+        `event: ${ServerEvent.Prompts}\ndata: ${JSON.stringify({
+          queued: session.queuedPrompts,
+          history: session.promptHistory || [],
+        })}\n\n`,
+      );
+      const initialWorkspaceFiles = scanWorkspaceDocuments(wsRoot, this.store);
+      res.write(
+        `event: ${ServerEvent.Workspace}\ndata: ${JSON.stringify({
+          workspaceRoot: wsRoot,
+          files: initialWorkspaceFiles,
+        })}\n\n`,
+      );
+
       // Event listeners
       const onPresence = (presence: string) => {
         res.write(`event: ${ServerEvent.Presence}\ndata: ${JSON.stringify({ presence })}\n\n`);
@@ -281,6 +379,9 @@ export class ZenServer {
       const onEnded = (ended: any) => {
         res.write(`event: ${ServerEvent.Ended}\ndata: ${JSON.stringify(ended)}\n\n`);
       };
+      const onPrompts = (promptsData: any) => {
+        res.write(`event: ${ServerEvent.Prompts}\ndata: ${JSON.stringify(promptsData)}\n\n`);
+      };
 
       this.store.on(`${ServerEvent.Presence}:${key}`, onPresence);
       this.store.on(`${ServerEvent.Progress}:${key}`, onProgress);
@@ -288,6 +389,7 @@ export class ZenServer {
       this.store.on(`${ServerEvent.Chat}:${key}`, onChat);
       this.store.on(`${ServerEvent.Approved}:${key}`, onApproved);
       this.store.on(`${ServerEvent.Ended}:${key}`, onEnded);
+      this.store.on(`${ServerEvent.Prompts}:${key}`, onPrompts);
 
       req.on("close", () => {
         clientSet?.delete(res);
@@ -297,6 +399,7 @@ export class ZenServer {
         this.store.off(`${ServerEvent.Chat}:${key}`, onChat);
         this.store.off(`${ServerEvent.Approved}:${key}`, onApproved);
         this.store.off(`${ServerEvent.Ended}:${key}`, onEnded);
+        this.store.off(`${ServerEvent.Prompts}:${key}`, onPrompts);
       });
       return;
     }
@@ -328,6 +431,16 @@ export class ZenServer {
         return;
       }
 
+      const effectiveSession =
+        filePathToRead === session.canonicalPath
+          ? session
+          : this.store.getOrCreateSession(filePathToRead);
+
+      this.watchFile(key, filePathToRead);
+      if (effectiveSession.key !== key) {
+        this.watchFile(effectiveSession.key, filePathToRead);
+      }
+
       const raw = fs.readFileSync(filePathToRead, "utf8");
       const stat = fs.statSync(filePathToRead);
       const ext = path.extname(filePathToRead).toLowerCase();
@@ -337,7 +450,7 @@ export class ZenServer {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
-          key: session.key,
+          key: effectiveSession.key,
           file:
             path.relative(session.workspaceRoot || path.dirname(filePathToRead), filePathToRead) ||
             path.basename(filePathToRead),
@@ -346,14 +459,19 @@ export class ZenServer {
           raw,
           renderedHtml,
           lastModified: stat.mtimeMs,
-          ended: session.ended,
-          endedBy: session.endedBy,
-          approved: session.approved || false,
-          approvedAt: session.approvedAt,
-          presence: session.presence,
-          activeProgress: session.activeProgress,
-          chatHistory: session.chatHistory,
-          diffs: session.diffs || [],
+          ended: effectiveSession.ended,
+          endedBy: effectiveSession.endedBy,
+          approved: effectiveSession.approved || false,
+          approvedAt: effectiveSession.approvedAt,
+          presence: effectiveSession.presence,
+          activeProgress: effectiveSession.activeProgress,
+          queuedPrompts: effectiveSession.queuedPrompts || [],
+          promptHistory: effectiveSession.promptHistory || [],
+          resolvedPrompts: (effectiveSession.promptHistory || []).filter(
+            (p) => p.status === "resolved",
+          ),
+          chatHistory: effectiveSession.chatHistory,
+          diffs: effectiveSession.diffs || [],
         }),
       );
       return;
@@ -372,10 +490,10 @@ export class ZenServer {
       }
 
       const root = session.workspaceRoot || path.dirname(session.canonicalPath);
-      const files = scanWorkspaceDocuments(root);
+      const files = scanWorkspaceDocuments(root, this.store);
 
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ root, workspaceRoot: root, files }));
+      res.end(JSON.stringify({ root, workspaceRoot: root, currentFile: session.filePath, files }));
       return;
     }
 
@@ -532,23 +650,68 @@ export class ZenServer {
 
       const body = await readJsonBody(req);
       const prompts: PromptItem[] = Array.isArray(body?.prompts) ? body.prompts : [];
+      const preparedPrompts: PromptItem[] = [];
 
       for (const p of prompts) {
-        this.store.queuePrompt(key, {
+        const item: PromptItem = {
           id: p.id || `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           tag: p.tag || PromptTag.Annotation,
           text: p.text || "",
           target: p.target,
           createdAt: p.createdAt || new Date().toISOString(),
-        });
+          status: "submitted",
+        };
+        preparedPrompts.push(item);
+        this.store.queuePrompt(key, item);
       }
+
+      this.store.recordSubmittedPrompts(key, preparedPrompts);
 
       if (body?.endSession) {
         this.store.endSession(key, ActorRole.User);
       }
 
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, count: prompts.length }));
+      res.end(
+        JSON.stringify({
+          success: true,
+          count: prompts.length,
+          queued: session.queuedPrompts,
+          history: session.promptHistory,
+        }),
+      );
+      return;
+    }
+
+    // Resolve prompt endpoint: /api/:key/prompts/resolve
+    const resolveMatch = pathname.match(/^\/api\/([a-zA-Z0-9]+)\/prompts\/resolve$/);
+    if (resolveMatch && req.method === "POST") {
+      const key = resolveMatch[1];
+      const session = this.store.getSession(key);
+
+      if (!session) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Session not found" }));
+        return;
+      }
+
+      const body = await readJsonBody(req);
+      const promptId = body?.promptId;
+      if (!promptId) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Missing promptId" }));
+        return;
+      }
+
+      const ok = this.store.resolvePrompt(key, promptId, {
+        startLine: body.startLine,
+        endLine: body.endLine,
+        diffSummary: body.diffSummary,
+        agentReply: body.agentReply,
+      });
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: ok, history: session.promptHistory }));
       return;
     }
 
