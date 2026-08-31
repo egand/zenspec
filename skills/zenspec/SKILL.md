@@ -33,14 +33,15 @@ ZenSpec opens Markdown or HTML documents in a browser for interactive line-level
    npx zenspec progress docs/plans/<topic>.md --step "Running test suite" --status running
    ```
 
-4. **Wait for Human Feedback**:
+4. **Wait for Human Feedback & Plan Approval**:
 
    ```bash
    npx zenspec poll docs/plans/<topic>.md
    ```
 
-5. **Apply Surgical Line Updates**:
-   - The poll command returns `{ startLine, endLine, selectedText, replacementText, feedback }`.
+5. **Iterate on Specification (Gated Implementation)**:
+   - **CRITICAL GATE**: Without explicit approval (user clicking the '✅ Approve Plan' button in the browser, returning `status: "approved"` or `approved: true`), the agent **MUST NOT START** implementing code, modifying project files, or scaffolding components.
+   - The agent must continuously update the specification, answer questions, or provide clarifications based on the feedback payload (`{ startLine, endLine, selectedText, replacementText, feedback }`).
    - Use `replace_file_content` to surgically update the exact lines in `docs/plans/<topic>.md`.
    - Reply via CLI: `zenspec poll docs/plans/<topic>.md --agent-reply "Updated Section 2 with feedback"`.
    - **Terminal Conciseness**: Keep terminal messages short and direct (1-2 sentences with links to changed lines). Do NOT duplicate or re-summarize what is already visible in the browser canvas to avoid wasting tokens.
@@ -51,8 +52,8 @@ ZenSpec opens Markdown or HTML documents in a browser for interactive line-level
    npx zenspec adr docs/plans/<topic>.md
    ```
 
-7. **Conclude Session**:
-   - When the user is satisfied, run:
+7. **Conclude Session & Proceed to Implementation**:
+   - Once the plan is approved, conclude the review session:
    ```bash
    npx zenspec end docs/plans/<topic>.md
    ```

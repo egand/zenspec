@@ -26,8 +26,9 @@ npm run format:check    # Prettier validation
 1. **Markdown-First**: Markdown files (`.md`) are the primary source of truth for architectural plans, specifications, and notes. They are stored permanently in project repositories (e.g. `docs/plans/`).
 2. **In-Memory Rendering**: The browser client parses Markdown to HTML dynamically in memory with `data-line-start` and `data-line-end` attributes. No intermediate HTML files are written to disk during live review.
 3. **Surgical Line-Based Feedback**: Long-polling (`GET /api/poll`) delivers `{ startLine, endLine, feedback }` payloads so agents can apply direct line replacements (`replace_file_content`) without scanning or rewriting full files.
-4. **Dual-Mode**: Raw `.html` artifacts are seamlessly supported in sandboxed iframes for rich UI prototypes.
-5. **Clean Git Source**: Third-party runtime dependencies are managed via `package.json` and bundled into `dist/` during `npm run build`. No raw vendor JavaScript files are committed to Git.
+4. **Plan & Artifact Approval Gate**: Without clicking the '✅ Approve Plan' button in the browser (or receiving `status: "approved"` / `approved: true`), the agent **MUST NOT START** implementing features, modifying source code, or scaffolding files. The agent must strictly keep updating the spec, answering review questions, and providing further details.
+5. **Dual-Mode**: Raw `.html` artifacts are seamlessly supported in sandboxed iframes for rich UI prototypes.
+6. **Clean Git Source**: Third-party runtime dependencies are managed via `package.json` and bundled into `dist/` during `npm run build`. No raw vendor JavaScript files are committed to Git.
 
 ## UI Verification & Screenshot Standards
 

@@ -152,4 +152,30 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
     expect(session).not.toBeNull();
     expect(session?.presence).toBe("waiting");
   });
+
+  it("interactively clicks Approve Plan button and marks session approved", async () => {
+    // Check initial state
+    const approveBtn = await page.$("#zen-approve-btn");
+    expect(approveBtn).not.toBeNull();
+
+    // Click Approve Plan button
+    await page.click("#zen-approve-btn");
+
+    // Wait for button text to update to "✓ Plan Approved"
+    await page.waitForFunction(
+      () => {
+        const btn = document.getElementById("zen-approve-btn");
+        return btn && btn.textContent?.includes("Plan Approved");
+      },
+      { timeout: 10000 },
+    );
+
+    const btnText = await page.$eval("#zen-approve-btn", (el) => el.textContent);
+    expect(btnText).toContain("Plan Approved");
+
+    // Verify session store reflects approval
+    const session = store.getSession(testKey);
+    expect(session?.approved).toBe(true);
+    expect(session?.approvedAt).toBeDefined();
+  });
 });

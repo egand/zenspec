@@ -6,7 +6,7 @@ import {
   generateADRDocument,
   resolveDefaultAdrPath,
 } from "../src/adr.js";
-import { SessionState } from "../src/types.js";
+import { SessionState, DocType, ActorRole, AgentPresence } from "../src/types.js";
 
 describe("ADR Generation & Resolution", () => {
   it("resolves default and custom ADR paths", () => {
@@ -62,25 +62,27 @@ describe("ADR Generation & Resolution", () => {
       key: "test-key",
       filePath: "/project/docs/plans/storage-rfc.md",
       canonicalPath: "/project/docs/plans/storage-rfc.md",
-      docType: "markdown",
+      docType: DocType.Markdown,
       queuedPrompts: [],
       chatHistory: [
         {
           id: "msg-1",
-          sender: "agent",
+          sender: ActorRole.Agent,
           text: "Proposed PostgreSQL for ACID support.",
           createdAt: "2026-08-30T10:00:00.000Z",
         },
         {
           id: "msg-2",
-          sender: "user",
+          sender: ActorRole.User,
           text: "Agreed, looks solid.",
           createdAt: "2026-08-30T10:01:00.000Z",
         },
       ],
-      presence: "waiting",
+      presence: AgentPresence.Waiting,
       lastModified: Date.now(),
       ended: true,
+      approved: true,
+      approvedAt: "2026-08-30T10:05:00.000Z",
     };
 
     const adr = generateADRDocument({ session, docContent: md, adrNumber: 2 });
@@ -100,12 +102,13 @@ describe("ADR Generation & Resolution", () => {
       key: "plain-key",
       filePath: "/project/docs/plans/plain.md",
       canonicalPath: "/project/docs/plans/plain.md",
-      docType: "markdown",
+      docType: DocType.Markdown,
       queuedPrompts: [],
       chatHistory: [],
-      presence: "waiting",
+      presence: AgentPresence.Waiting,
       lastModified: Date.now(),
       ended: false,
+      approved: false,
     };
 
     const adr = generateADRDocument({ session, docContent: md });

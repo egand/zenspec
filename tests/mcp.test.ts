@@ -6,6 +6,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { createMcpServer } from "../src/mcp.js";
 import { SessionStore } from "../src/session-store.js";
+import { McpToolName, PollStatus, AgentPresence, PromptTag, ProgressStatus } from "../src/types.js";
 
 describe("Zen Native MCP Server End-to-End Tools", () => {
   let store: SessionStore;
@@ -33,23 +34,24 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
     if (fs.existsSync(testFile)) fs.unlinkSync(testFile);
   });
 
-  it("lists all 7 available zen tools with descriptions and schemas", async () => {
+  it("lists all 8 available zen tools with descriptions and schemas", async () => {
     const res = await client.listTools();
     const names = res.tools.map((t) => t.name);
 
-    expect(names).toContain("zen_open_review");
-    expect(names).toContain("zen_poll_feedback");
-    expect(names).toContain("zen_reply");
-    expect(names).toContain("zen_progress");
-    expect(names).toContain("zen_end_session");
-    expect(names).toContain("zen_get_status");
-    expect(names).toContain("zen_export_adr");
-    expect(names.length).toBe(7);
+    expect(names).toContain(McpToolName.OpenReview);
+    expect(names).toContain(McpToolName.PollFeedback);
+    expect(names).toContain(McpToolName.ApprovePlan);
+    expect(names).toContain(McpToolName.Reply);
+    expect(names).toContain(McpToolName.Progress);
+    expect(names).toContain(McpToolName.EndSession);
+    expect(names).toContain(McpToolName.GetStatus);
+    expect(names).toContain(McpToolName.ExportAdr);
+    expect(names.length).toBe(8);
   });
 
   it("executes zen_get_status tool", async () => {
     const result: any = await client.callTool({
-      name: "zen_get_status",
+      name: McpToolName.GetStatus,
       arguments: {},
     });
 
@@ -61,7 +63,7 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
 
   it("executes zen_open_review and registers session in store", async () => {
     const result: any = await client.callTool({
-      name: "zen_open_review",
+      name: McpToolName.OpenReview,
       arguments: { filePath: testFile, noOpen: true },
     });
 
@@ -78,7 +80,7 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
 
   it("executes zen_reply and delivers agent chat message", async () => {
     const result: any = await client.callTool({
-      name: "zen_reply",
+      name: McpToolName.Reply,
       arguments: { filePath: testFile, message: "Review update ready" },
     });
 
@@ -91,8 +93,8 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
 
   it("executes zen_progress and sets agent telemetry", async () => {
     const result: any = await client.callTool({
-      name: "zen_progress",
-      arguments: { filePath: testFile, step: "Building bundle", status: "running" },
+      name: McpToolName.Progress,
+      arguments: { filePath: testFile, step: "Building bundle", status: ProgressStatus.Running },
     });
 
     const data = JSON.parse(result.content[0].text);
@@ -100,25 +102,25 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
 
     const session = store.getSessionByFile(testFile);
     expect(session?.activeProgress?.step).toBe("Building bundle");
-    expect(session?.presence).toBe("working");
+    expect(session?.presence).toBe(AgentPresence.Working);
   });
 
   it("executes zen_poll_feedback when prompts are queued", async () => {
     const session = store.getOrCreateSession(testFile);
     store.queuePrompt(session.key, {
       id: "p-test",
-      tag: "annotation",
+      tag: PromptTag.Annotation,
       text: "Approve database schema",
       createdAt: new Date().toISOString(),
     });
 
     const result: any = await client.callTool({
-      name: "zen_poll_feedback",
+      name: McpToolName.PollFeedback,
       arguments: { filePath: testFile },
     });
 
     const data = JSON.parse(result.content[0].text);
-    expect(data.status).toBe("feedback");
+    expect(data.status).toBe(PollStatus.Feedback);
     expect(data.prompts.length).toBe(1);
     expect(data.prompts[0].text).toBe("Approve database schema");
   });
@@ -128,7 +130,7 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
 
     try {
       const result: any = await client.callTool({
-        name: "zen_export_adr",
+        name: McpToolName.ExportAdr,
         arguments: { filePath: testFile, outPath: adrOut },
       });
 
@@ -146,7 +148,7 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
 
   it("executes zen_end_session and marks session as concluded", async () => {
     const result: any = await client.callTool({
-      name: "zen_end_session",
+      name: McpToolName.EndSession,
       arguments: { filePath: testFile },
     });
 
@@ -157,10 +159,25 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
     expect(session?.ended).toBe(true);
   });
 
+  it("executes zen_approve_plan and sets session approval state", async () => {
+    const result: any = await client.callTool({
+      name: McpToolName.ApprovePlan,
+      arguments: { filePath: testFile, notes: "Approved for execution" },
+    });
+
+    const data = JSON.parse(result.content[0].text);
+    expect(data.success).toBe(true);
+    expect(data.approved).toBe(true);
+
+    const session = store.getSessionByFile(testFile);
+    expect(session?.approved).toBe(true);
+    expect(session?.approvedAt).toBeDefined();
+  });
+
   it("throws error for non-existent file on tools requiring valid path", async () => {
     await expect(
       client.callTool({
-        name: "zen_export_adr",
+        name: McpToolName.ExportAdr,
         arguments: { filePath: "/non/existent/path.md" },
       }),
     ).rejects.toThrow();

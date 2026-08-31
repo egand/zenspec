@@ -46,6 +46,7 @@ npm install -g zenspec
 | :------------------------------- | :----------------------------------------------------------------- |
 | `zenspec <file\|dir>`            | Start daemon and open interactive review session in browser        |
 | `zenspec poll <file>`            | Long-poll until human submits feedback or ends session             |
+| `zenspec approve <file>`         | Approve plan & authorize agent to proceed with implementation      |
 | `zenspec reply <file> -m "..."`  | Push agent progress/chat message to the browser conversation       |
 | `zenspec progress <file> --step` | Stream live execution status (testing, patching) to browser topbar |
 | `zenspec adr <file> [--out]`     | Generate MADR Architecture Decision Record from review decisions   |
@@ -74,7 +75,11 @@ When an agent edits the reviewed Markdown file on disk, `zenspec` computes line 
 
 Reviewers can highlight any text and click **Suggest Edit** to provide proposed replacement text. The agent receives `{ startLine, endLine, selectedText, replacementText }` for instant, one-call application via `replace_file_content`.
 
-### 3. Native Model Context Protocol (MCP) Server
+### 3. Plan & Artifact Approval Gate (✅ Approve Plan)
+
+The UI includes a dedicated **Approve Plan** button (`a` shortcut). Without clicking this approval button (`approved: true` or `status: 'approved'`), agents **MUST NOT** start implementing things. The agent is required to keep iterating on the specification, answering questions, and providing further details until the human grants explicit approval.
+
+### 4. Native Model Context Protocol (MCP) Server
 
 Integrate with Claude Desktop, Cursor, Antigravity, or Windsurf via `zenspec mcp`:
 
