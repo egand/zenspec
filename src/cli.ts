@@ -11,9 +11,10 @@ import { renderMarkdownWithSourceLines } from "./sourcemap.js";
 import { generateADRDocument, resolveDefaultAdrPath } from "./adr.js";
 import { runMcpServer } from "./mcp.js";
 import { startTunnel } from "./tunnel.js";
+import { SERVER_DEFAULTS, ActorRole, PollStatus, ProgressStatus } from "./types.js";
 
-const DEFAULT_PORT = 4388;
-const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_PORT = SERVER_DEFAULTS.PORT;
+const DEFAULT_HOST = SERVER_DEFAULTS.HOST;
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -37,7 +38,10 @@ async function postToDaemon(apiPath: string, payload: any = {}): Promise<number>
   });
 }
 
-async function isServerRunning(port = DEFAULT_PORT, host = DEFAULT_HOST): Promise<boolean> {
+async function isServerRunning(
+  port: number = DEFAULT_PORT,
+  host: string = DEFAULT_HOST,
+): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.get(`http://${host}:${port}/health`, (res) => {
       resolve(res.statusCode === 200);
@@ -50,7 +54,10 @@ async function isServerRunning(port = DEFAULT_PORT, host = DEFAULT_HOST): Promis
   });
 }
 
-async function startServerDaemon(port = DEFAULT_PORT, host = DEFAULT_HOST): Promise<void> {
+async function startServerDaemon(
+  port: number = DEFAULT_PORT,
+  host: string = DEFAULT_HOST,
+): Promise<void> {
   const isRunning = await isServerRunning(port, host);
   if (isRunning) return;
 
@@ -191,7 +198,7 @@ async function main() {
         if (!trimmed) return;
         try {
           const data = JSON.parse(trimmed);
-          if (data.status === "superseded") {
+          if (data.status === PollStatus.Superseded) {
             process.exit(0);
           }
           console.log(JSON.stringify(data, null, 2));
@@ -206,6 +213,38 @@ async function main() {
       process.exit(1);
     });
 
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // zenspec approve <file> [--notes "..."]
+  // ---------------------------------------------------------------------------
+  if (command === "approve") {
+    const file = args[1];
+    if (!file) {
+      console.error(
+        pc.red(
+          "Error: Please specify a file to approve. Example: zenspec approve docs/plans/spec.md",
+        ),
+      );
+      process.exit(1);
+    }
+
+    const notesIdx = args.indexOf("--notes");
+    const notes = notesIdx !== -1 ? args[notesIdx + 1] : undefined;
+
+    const canonicalPath = fs.existsSync(file) ? fs.realpathSync(file) : path.resolve(file);
+    const key = sessionKey(canonicalPath);
+
+    const statusCode = await postToDaemon(`/api/${key}/approve`, { notes });
+    if (statusCode === 200) {
+      console.log(
+        pc.green(`✓ Plan for ${pc.bold(file)} approved! Agent is authorized to proceed.`),
+      );
+    } else {
+      console.error(pc.red(`Failed to approve plan (status code ${statusCode}).`));
+      process.exit(1);
+    }
     return;
   }
 
@@ -238,7 +277,7 @@ async function main() {
     const stepIdx = args.indexOf("--step");
     const step = stepIdx !== -1 ? args[stepIdx + 1] : args[2];
     const statusIdx = args.indexOf("--status");
-    const status = statusIdx !== -1 ? args[statusIdx + 1] : "running";
+    const status = statusIdx !== -1 ? args[statusIdx + 1] : ProgressStatus.Running;
     const detailsIdx = args.indexOf("--details");
     const details = detailsIdx !== -1 ? args[detailsIdx + 1] : undefined;
 
@@ -295,7 +334,7 @@ async function main() {
     const canonicalPath = fs.existsSync(file) ? fs.realpathSync(file) : path.resolve(file);
     const key = sessionKey(canonicalPath);
 
-    const statusCode = await postToDaemon(`/api/${key}/end`, { endedBy: "agent" });
+    const statusCode = await postToDaemon(`/api/${key}/end`, { endedBy: ActorRole.Agent });
     if (statusCode === 200) {
       console.log(pc.green(`✓ Session for ${pc.bold(file)} concluded as agent.`));
     }
@@ -407,6 +446,7 @@ ${pc.bold(pc.cyan("ZenSpec"))} - Minimalist, token-efficient Agent Experience In
 ${pc.bold("USAGE:")}
   zenspec <file|dir>                   Open or resume review session in browser
   zenspec poll <file>                  Wait for human feedback via long-polling
+  zenspec approve <file> [--notes ".."] Approve plan & authorize agent to proceed
   zenspec reply <file> -m "..."        Send progress message to browser conversation
   zenspec progress <file> --step "..." Stream live execution status to reviewer topbar
   zenspec adr <file> [--out <dest>]    Generate Architecture Decision Record (ADR)

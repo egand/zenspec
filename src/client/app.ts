@@ -1,32 +1,18 @@
 /**
  * Zen AXI Browser Client Logic
  */
-
-interface PromptItem {
-  id: string;
-  queueKey?: string;
-  tag: "annotation" | "suggestion" | "question" | "chat" | "diagram";
-  text: string;
-  target?: {
-    type: "markdown-range" | "dom-element";
-    startLine?: number;
-    endLine?: number;
-    selectedText?: string;
-    replacementText?: string;
-    headingContext?: string;
-    selector?: string;
-    tagName?: string;
-  };
-  createdAt: string;
-}
-
-interface DiffRange {
-  startLine: number;
-  endLine: number;
-  type: "added" | "modified" | "deleted";
-  oldText?: string;
-  newText?: string;
-}
+import {
+  PromptItem,
+  DiffRange,
+  DocType,
+  PromptTag,
+  DiffType,
+  TargetType,
+  AgentPresence,
+  ServerEvent,
+  ActorRole,
+  ProgressStatus,
+} from "../types.js";
 
 let sessionKey = "";
 let currentFilePath = "";
@@ -51,6 +37,21 @@ function extractSessionKey(): string {
   return params.get("key") || "";
 }
 
+function updateApprovalState(isApproved: boolean, approvedAt?: string) {
+  const approveBtn = document.getElementById("zen-approve-btn") as HTMLButtonElement | null;
+  if (!approveBtn) return;
+  if (isApproved) {
+    approveBtn.classList.add("zen-btn-approved");
+    approveBtn.innerHTML = "✓ Plan Approved";
+    const dateStr = approvedAt ? new Date(approvedAt).toLocaleTimeString() : "recently";
+    approveBtn.title = `Plan approved at ${dateStr}. Agent is authorized to implement.`;
+  } else {
+    approveBtn.classList.remove("zen-btn-approved");
+    approveBtn.innerHTML = "✅ Approve Plan";
+    approveBtn.title = "Approve Plan & Authorize Implementation (a)";
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Document Loading and Rendering
 // -----------------------------------------------------------------------------
@@ -68,17 +69,19 @@ async function loadDocument(targetRelFile?: string) {
     currentFilePath = data.file;
 
     // Update Header
-
     const fileNameEl = document.getElementById("zen-file-name");
     const docTypeEl = document.getElementById("zen-doc-type");
     if (fileNameEl) fileNameEl.textContent = data.file;
     if (docTypeEl) docTypeEl.textContent = data.docType.toUpperCase();
 
+    // Update Approval State
+    updateApprovalState(Boolean(data.approved), data.approvedAt);
+
     // Render Canvas
     const container = document.getElementById("zen-document-view");
     if (!container) return;
 
-    if (data.docType === "markdown") {
+    if (data.docType === DocType.Markdown) {
       container.innerHTML = data.renderedHtml;
 
       // Initialize Mermaid diagrams
@@ -186,10 +189,10 @@ function setupQuestionListeners(container: HTMLElement) {
           queueOrReplacePrompt({
             id: `q-${questionId}`,
             queueKey: `question-${questionId}`,
-            tag: "question",
+            tag: PromptTag.Question,
             text: `Rating for "${title}": ${val}/5 Stars`,
             target: {
-              type: "markdown-range",
+              type: TargetType.MarkdownRange,
               startLine: line,
               endLine: line,
               selectedText: `${val}/5`,
@@ -219,10 +222,10 @@ function setupQuestionListeners(container: HTMLElement) {
         queueOrReplacePrompt({
           id: `q-${questionId}`,
           queueKey: `question-${questionId}`,
-          tag: "question",
+          tag: PromptTag.Question,
           text: `Answers to "${title}": ${selectedVals.join(", ")}`,
           target: {
-            type: "markdown-range",
+            type: TargetType.MarkdownRange,
             startLine: line,
             endLine: line,
             selectedText: selectedVals.join(", "),
@@ -261,10 +264,10 @@ function setupQuestionListeners(container: HTMLElement) {
           queueOrReplacePrompt({
             id: `q-${questionId}`,
             queueKey: `question-${questionId}`,
-            tag: "question",
+            tag: PromptTag.Question,
             text: `Answer to "${title}": ${val}`,
             target: {
-              type: "markdown-range",
+              type: TargetType.MarkdownRange,
               startLine: line,
               endLine: line,
               selectedText: val,
@@ -300,10 +303,10 @@ function setupQuestionListeners(container: HTMLElement) {
           queueOrReplacePrompt({
             id: `q-${questionId}`,
             queueKey: `question-${questionId}`,
-            tag: "question",
+            tag: PromptTag.Question,
             text: `Answer to "${title}": ${val}`,
             target: {
-              type: "markdown-range",
+              type: TargetType.MarkdownRange,
               startLine: line,
               endLine: line,
               selectedText: val,
@@ -459,7 +462,7 @@ function applyDiffHighlights() {
 
     for (const diff of activeDiffs) {
       if (startLine <= diff.endLine && endLine >= diff.startLine) {
-        if (diff.type === "added") el.classList.add("zen-diff-added");
+        if (diff.type === DiffType.Added) el.classList.add("zen-diff-added");
         else el.classList.add("zen-diff-modified");
         break;
       }
@@ -478,15 +481,15 @@ function renderMarginPins() {
   container.querySelectorAll(".zen-margin-pin").forEach((p) => p.remove());
 
   for (const item of queuedPrompts) {
-    if (item.target?.type === "markdown-range" && item.target.startLine) {
+    if (item.target?.type === TargetType.MarkdownRange && item.target.startLine) {
       const line = item.target.startLine;
       const targetEl = container.querySelector(`[data-line-start="${line}"]`) as HTMLElement;
       if (targetEl) {
         const pin = document.createElement("div");
         pin.className = `zen-margin-pin ${
-          item.tag === "suggestion" ? "zen-margin-pin-suggestion" : ""
+          item.tag === PromptTag.Suggestion ? "zen-margin-pin-suggestion" : ""
         }`;
-        pin.textContent = item.tag === "suggestion" ? "✏️" : "💬";
+        pin.textContent = item.tag === PromptTag.Suggestion ? "✏️" : "💬";
         pin.title = `[${item.tag.toUpperCase()}] ${item.text}`;
         pin.addEventListener("click", () => {
           showToast(`Feedback on line ${line}: "${item.text.slice(0, 50)}..."`);
@@ -576,7 +579,7 @@ function setupEventStream() {
   if (!sessionKey) return;
   const es = new EventSource(`/events/${sessionKey}`);
 
-  es.addEventListener("reload", (e: MessageEvent) => {
+  es.addEventListener(ServerEvent.Reload, (e: MessageEvent) => {
     showToast("⟳ File updated on disk. Re-rendering...");
     try {
       const data = JSON.parse(e.data);
@@ -589,7 +592,7 @@ function setupEventStream() {
     loadDocument(currentFilePath);
   });
 
-  es.addEventListener("diff", (e: MessageEvent) => {
+  es.addEventListener(ServerEvent.Diff, (e: MessageEvent) => {
     try {
       const data = JSON.parse(e.data);
       if (data.diffs) {
@@ -601,7 +604,7 @@ function setupEventStream() {
     }
   });
 
-  es.addEventListener("presence", (e: MessageEvent) => {
+  es.addEventListener(ServerEvent.Presence, (e: MessageEvent) => {
     try {
       const data = JSON.parse(e.data);
       updatePresence(data.presence);
@@ -610,7 +613,7 @@ function setupEventStream() {
     }
   });
 
-  es.addEventListener("progress", (e: MessageEvent) => {
+  es.addEventListener(ServerEvent.Progress, (e: MessageEvent) => {
     try {
       const prog = JSON.parse(e.data);
       updateProgressTelemetry(prog);
@@ -619,7 +622,7 @@ function setupEventStream() {
     }
   });
 
-  es.addEventListener("chat", (e: MessageEvent) => {
+  es.addEventListener(ServerEvent.Chat, (e: MessageEvent) => {
     try {
       const msg = JSON.parse(e.data);
       appendChatMessage(msg);
@@ -629,7 +632,17 @@ function setupEventStream() {
     }
   });
 
-  es.addEventListener("ended", () => {
+  es.addEventListener(ServerEvent.Approved, (e: MessageEvent) => {
+    try {
+      const data = JSON.parse(e.data);
+      updateApprovalState(true, data.approvedAt);
+      showToast("✅ Plan approved! Agent is authorized to proceed with implementation.");
+    } catch (err) {
+      console.debug("SSE approved parse error", err);
+    }
+  });
+
+  es.addEventListener(ServerEvent.Ended, () => {
     showToast("🛑 Session ended.");
     const endBtn = document.getElementById("zen-end-btn");
     if (endBtn) {
@@ -649,9 +662,9 @@ function updatePresence(presence: string) {
   if (!chip || !textEl) return;
 
   chip.className = `zen-presence-chip zen-presence-${presence}`;
-  if (presence === "listening") {
+  if (presence === AgentPresence.Listening) {
     textEl.textContent = "Agent listening";
-  } else if (presence === "working") {
+  } else if (presence === AgentPresence.Working) {
     textEl.textContent = "Agent working...";
   } else {
     textEl.textContent = "Waiting for agent";
@@ -663,7 +676,7 @@ function updateProgressTelemetry(prog: any) {
   const stepEl = document.getElementById("zen-progress-step");
   if (!liveProgressEl || !stepEl) return;
 
-  if (prog.status === "running") {
+  if (prog.status === ProgressStatus.Running) {
     liveProgressEl.style.display = "flex";
     stepEl.textContent = prog.step;
   } else {
@@ -843,11 +856,12 @@ function renderQueue() {
 
   listEl.innerHTML = queuedPrompts
     .map((p, idx) => {
-      const lineInfo = p.target?.startLine
-        ? `Lines ${p.target.startLine}-${p.target.endLine || p.target.startLine}`
+      const mdTarget = p.target?.type === TargetType.MarkdownRange ? p.target : undefined;
+      const lineInfo = mdTarget?.startLine
+        ? `Lines ${mdTarget.startLine}-${mdTarget.endLine || mdTarget.startLine}`
         : "General";
 
-      if (p.tag === "suggestion" && p.target?.replacementText) {
+      if (p.tag === PromptTag.Suggestion && mdTarget?.replacementText) {
         return `
         <div class="zen-queue-card zen-queue-card-suggestion">
           <div class="zen-queue-card-meta zen-queue-card-meta-suggestion">
@@ -855,8 +869,8 @@ function renderQueue() {
             <button type="button" class="zen-queue-remove-btn" data-idx="${idx}" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:0.9rem;">✕</button>
           </div>
           <div class="zen-suggestion-diff">
-            <div class="zen-suggestion-old">- ${escapeHtml(p.target.selectedText || "")}</div>
-            <div class="zen-suggestion-new">+ ${escapeHtml(p.target.replacementText)}</div>
+            <div class="zen-suggestion-old">- ${escapeHtml(mdTarget.selectedText || "")}</div>
+            <div class="zen-suggestion-new">+ ${escapeHtml(mdTarget.replacementText)}</div>
           </div>
         </div>`;
       }
@@ -927,11 +941,12 @@ function copyQueueAsPrompt() {
 
   let formatted = `### Human Reviewer Feedback for \`${currentFilePath}\`:\n\n`;
   for (const item of queuedPrompts) {
-    const lineInfo = item.target?.startLine
-      ? `(Lines ${item.target.startLine}-${item.target.endLine || item.target.startLine})`
+    const mdTarget = item.target?.type === TargetType.MarkdownRange ? item.target : undefined;
+    const lineInfo = mdTarget?.startLine
+      ? `(Lines ${mdTarget.startLine}-${mdTarget.endLine || mdTarget.startLine})`
       : "";
-    if (item.tag === "suggestion" && item.target?.replacementText) {
-      formatted += `* **Suggestion** ${lineInfo}:\n  - Original: "${item.target.selectedText}"\n  - Replacement: "${item.target.replacementText}"\n`;
+    if (item.tag === PromptTag.Suggestion && mdTarget?.replacementText) {
+      formatted += `* **Suggestion** ${lineInfo}:\n  - Original: "${mdTarget.selectedText || ""}"\n  - Replacement: "${mdTarget.replacementText}"\n`;
     } else {
       formatted += `* **${item.tag.toUpperCase()}** ${lineInfo}: ${item.text}\n`;
     }
@@ -1018,6 +1033,23 @@ function setupUiListeners() {
     showToast(`Diff highlights: ${diffsVisible ? "Enabled" : "Disabled"}`);
   });
 
+  // Approve Plan Button
+  document.getElementById("zen-approve-btn")?.addEventListener("click", async () => {
+    try {
+      const res = await fetch(`/api/${sessionKey}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: "Explicitly approved from ZenSpec UI" }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      updateApprovalState(true, data.approvedAt);
+      showToast("✅ Plan approved! Agent is authorized to proceed with implementation.");
+    } catch (e: any) {
+      showToast(`Error approving plan: ${e.message}`);
+    }
+  });
+
   // End Session Button
   document.getElementById("zen-end-btn")?.addEventListener("click", async () => {
     if (!confirm("Are you sure you want to end this review session?")) return;
@@ -1025,7 +1057,7 @@ function setupUiListeners() {
       await fetch(`/api/${sessionKey}/end`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endedBy: "user" }),
+        body: JSON.stringify({ endedBy: ActorRole.User }),
       });
       showToast("🛑 Review session ended.");
     } catch (e: any) {
@@ -1070,11 +1102,11 @@ function setupUiListeners() {
 
       queuePrompt({
         id: `action-${Date.now()}`,
-        tag: "annotation",
+        tag: PromptTag.Annotation,
         text: promptsMap[action] || "Action requested",
         target: activeHighlight
           ? {
-              type: "markdown-range",
+              type: TargetType.MarkdownRange,
               startLine: activeHighlight.startLine,
               endLine: activeHighlight.endLine,
               selectedText,
@@ -1128,10 +1160,10 @@ function setupUiListeners() {
 
       queuePrompt({
         id: `sug-${Date.now()}`,
-        tag: "suggestion",
+        tag: PromptTag.Suggestion,
         text: `Suggest replacing "${activeHighlight.text}" with "${replacementText}"`,
         target: {
-          type: "markdown-range",
+          type: TargetType.MarkdownRange,
           startLine: activeHighlight.startLine,
           endLine: activeHighlight.endLine,
           selectedText: activeHighlight.text,
@@ -1153,10 +1185,10 @@ function setupUiListeners() {
 
       queuePrompt({
         id: `ann-${Date.now()}`,
-        tag: "annotation",
+        tag: PromptTag.Annotation,
         text,
         target: {
-          type: "markdown-range",
+          type: TargetType.MarkdownRange,
           startLine: activeHighlight.startLine,
           endLine: activeHighlight.endLine,
           selectedText: activeHighlight.text,
@@ -1193,7 +1225,7 @@ function setupUiListeners() {
 
       queuePrompt({
         id: `note-${Date.now()}`,
-        tag: "chat",
+        tag: PromptTag.Chat,
         text: val,
         createdAt: new Date().toISOString(),
       });
@@ -1234,7 +1266,10 @@ function setupUiListeners() {
       return;
     }
 
-    if (e.key === "c" || e.key === "C") {
+    if (e.key === "a" || e.key === "A") {
+      e.preventDefault();
+      document.getElementById("zen-approve-btn")?.click();
+    } else if (e.key === "c" || e.key === "C") {
       if (activeHighlight) {
         e.preventDefault();
         openAnnotationModal(activeHighlight, "comment");

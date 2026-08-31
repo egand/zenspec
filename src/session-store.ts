@@ -13,6 +13,13 @@ import {
   WorkspaceDocumentInfo,
   DiffRange,
   PollResponse,
+  DocType,
+  AgentPresence,
+  ActorRole,
+  ProgressStatus,
+  PollStatus,
+  DiffType,
+  ServerEvent,
 } from "./types.js";
 
 const STATE_DIR = path.join(os.homedir(), ".zenspec");
@@ -58,7 +65,7 @@ export function computeLineDiff(oldStr: string, newStr: string): DiffRange[] {
         diffs.push({
           startLine,
           endLine: Math.max(startLine, newMatch),
-          type: oldMatch > oldIdx && newMatch > newIdx ? "modified" : "added",
+          type: oldMatch > oldIdx && newMatch > newIdx ? DiffType.Modified : DiffType.Added,
           newText: newLines.slice(newIdx, newMatch).join("\n"),
           oldText: oldLines.slice(oldIdx, oldMatch).join("\n"),
         });
@@ -69,7 +76,7 @@ export function computeLineDiff(oldStr: string, newStr: string): DiffRange[] {
       diffs.push({
         startLine: newIdx + 1,
         endLine: newLines.length,
-        type: "modified",
+        type: DiffType.Modified,
         newText: newLines.slice(newIdx).join("\n"),
         oldText: oldLines.slice(oldIdx).join("\n"),
       });
@@ -81,7 +88,7 @@ export function computeLineDiff(oldStr: string, newStr: string): DiffRange[] {
     diffs.push({
       startLine: newIdx + 1,
       endLine: newLines.length,
-      type: "added",
+      type: DiffType.Added,
       newText: newLines.slice(newIdx).join("\n"),
     });
   }
@@ -116,7 +123,7 @@ export function scanWorkspaceDocuments(dirPath: string): WorkspaceDocumentInfo[]
             results.push({
               relPath: path.relative(dirPath, full),
               absPath: full,
-              docType: ext === ".html" || ext === ".htm" ? "html" : "markdown",
+              docType: ext === ".html" || ext === ".htm" ? DocType.Html : DocType.Markdown,
               sizeBytes: stat.size,
               lastModified: stat.mtimeMs,
             });
@@ -194,7 +201,8 @@ export class SessionStore extends EventEmitter {
     let session = this.sessions.get(key);
 
     const ext = path.extname(canonicalPath).toLowerCase();
-    const docType: DocumentType = ext === ".html" || ext === ".htm" ? "html" : "markdown";
+    const docType: DocumentType =
+      ext === ".html" || ext === ".htm" ? DocType.Html : DocType.Markdown;
 
     const initialContent = fs.existsSync(canonicalPath)
       ? fs.readFileSync(canonicalPath, "utf8")
@@ -209,7 +217,8 @@ export class SessionStore extends EventEmitter {
         token: options.token || crypto.randomBytes(8).toString("hex"),
         workspaceRoot,
         ended: false,
-        presence: "waiting",
+        approved: false,
+        presence: AgentPresence.Waiting,
         queuedPrompts: [],
         chatHistory: [],
         currentContent: initialContent,
@@ -224,6 +233,7 @@ export class SessionStore extends EventEmitter {
       session.canonicalPath = canonicalPath;
       session.docType = docType;
       session.workspaceRoot = workspaceRoot;
+      if (session.approved === undefined) session.approved = false;
       if (options.token) session.token = options.token;
       if (!session.currentContent && initialContent) {
         session.currentContent = initialContent;
@@ -261,7 +271,7 @@ export class SessionStore extends EventEmitter {
     session.lastModified = Date.now();
     this.persistState();
 
-    this.emit(`diff:${key}`, { diffs, lastModified: session.lastModified });
+    this.emit(`${ServerEvent.Diff}:${key}`, { diffs, lastModified: session.lastModified });
     return diffs;
   }
 
@@ -270,7 +280,7 @@ export class SessionStore extends EventEmitter {
     if (!session) return;
     session.presence = presence;
     this.persistState();
-    this.emit(`presence:${key}`, presence);
+    this.emit(`${ServerEvent.Presence}:${key}`, presence);
   }
 
   public setProgress(key: string, update: AgentProgressUpdate): void {
@@ -278,11 +288,11 @@ export class SessionStore extends EventEmitter {
     if (!session) return;
 
     session.activeProgress = update;
-    if (update.status === "running") {
-      session.presence = "working";
+    if (update.status === ProgressStatus.Running) {
+      session.presence = AgentPresence.Working;
     }
     this.persistState();
-    this.emit(`progress:${key}`, update);
+    this.emit(`${ServerEvent.Progress}:${key}`, update);
   }
 
   public queuePrompt(key: string, prompt: PromptItem): void {
@@ -296,7 +306,7 @@ export class SessionStore extends EventEmitter {
     this.flushPollWaiters(key);
   }
 
-  public addChatMessage(key: string, sender: "user" | "agent", text: string): ChatMessage {
+  public addChatMessage(key: string, sender: ActorRole, text: string): ChatMessage {
     const session = this.sessions.get(key);
     const msg: ChatMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -308,22 +318,37 @@ export class SessionStore extends EventEmitter {
     if (session) {
       session.chatHistory.push(msg);
       this.persistState();
-      this.emit(`chat:${key}`, msg);
+      this.emit(`${ServerEvent.Chat}:${key}`, msg);
     }
 
     return msg;
   }
 
-  public endSession(key: string, endedBy: "user" | "agent"): void {
+  public approveSession(key: string, notes?: string): void {
+    const session = this.sessions.get(key);
+    if (!session) return;
+
+    session.approved = true;
+    session.approvedAt = new Date().toISOString();
+    if (notes) {
+      this.addChatMessage(key, ActorRole.User, `[Plan Approved] ${notes}`);
+    }
+    this.persistState();
+
+    this.emit(`${ServerEvent.Approved}:${key}`, { approved: true, approvedAt: session.approvedAt });
+    this.flushPollWaiters(key);
+  }
+
+  public endSession(key: string, endedBy: ActorRole): void {
     const session = this.sessions.get(key);
     if (!session) return;
 
     session.ended = true;
     session.endedBy = endedBy;
-    session.presence = "waiting";
+    session.presence = AgentPresence.Waiting;
     this.persistState();
 
-    this.emit(`ended:${key}`, { endedBy });
+    this.emit(`${ServerEvent.Ended}:${key}`, { endedBy });
     this.flushPollWaiters(key);
   }
 
@@ -333,7 +358,7 @@ export class SessionStore extends EventEmitter {
       for (const oldWaiter of existing) {
         try {
           oldWaiter({
-            status: "superseded",
+            status: PollStatus.Superseded,
             file: this.sessions.get(key)?.filePath || "",
             message: "New poll client connected for this session.",
           });
@@ -370,10 +395,39 @@ export class SessionStore extends EventEmitter {
 
     if (session.queuedPrompts.length > 0) {
       const prompts = this.takeQueuedPrompts(key);
+      const response: PollResponse = session.approved
+        ? {
+            status: PollStatus.Approved,
+            file: session.filePath,
+            approved: true,
+            approvedAt: session.approvedAt,
+            prompts,
+            message: "Plan has been explicitly approved by the reviewer.",
+            sessionEnded: session.ended,
+            endedBy: session.endedBy,
+          }
+        : {
+            status: PollStatus.Feedback,
+            file: session.filePath,
+            prompts,
+            approved: false,
+            sessionEnded: session.ended,
+            endedBy: session.endedBy,
+          };
+      const callbacks = [...waiters];
+      this.pollWaiters.set(key, []);
+      for (const cb of callbacks) cb(response);
+      return;
+    }
+
+    if (session.approved) {
       const response: PollResponse = {
-        status: "feedback",
+        status: PollStatus.Approved,
         file: session.filePath,
-        prompts,
+        approved: true,
+        approvedAt: session.approvedAt,
+        message:
+          "Plan has been explicitly approved by the reviewer. You may now proceed with implementation.",
         sessionEnded: session.ended,
         endedBy: session.endedBy,
       };
@@ -385,10 +439,11 @@ export class SessionStore extends EventEmitter {
 
     if (session.ended) {
       const response: PollResponse = {
-        status: "ended",
+        status: PollStatus.Ended,
         file: session.filePath,
+        approved: session.approved,
         endedBy: session.endedBy,
-        message: `Session was concluded by ${session.endedBy || "user"}.`,
+        message: `Session was concluded by ${session.endedBy || ActorRole.User}.`,
       };
       const callbacks = [...waiters];
       this.pollWaiters.set(key, []);
