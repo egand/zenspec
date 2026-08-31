@@ -434,9 +434,56 @@ async function main() {
     }
   }
 
+  const noPoll = args.includes("--no-poll") || args.includes("--detach") || args.includes("-d");
+  const shouldPoll = !noPoll;
+
+  if (shouldPoll) {
+    const replyIdx = args.indexOf("--agent-reply");
+    if (replyIdx !== -1 && args[replyIdx + 1]) {
+      const replyText = args[replyIdx + 1];
+      await postToDaemon(`/api/${session.key}/reply`, { message: replyText });
+    }
+
+    process.stderr.write(
+      pc.cyan(
+        `\n⏳ ZenSpec: Review session live. Waiting for human feedback or approval on ${pc.bold(
+          path.basename(targetFile),
+        )}...\n`,
+      ),
+    );
+
+    const pollUrl = `http://${DEFAULT_HOST}:${customPort}/api/poll?key=${session.key}`;
+    const req = http.get(pollUrl, (res) => {
+      let body = "";
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () => {
+        const trimmed = body.trim();
+        if (!trimmed) return;
+        try {
+          const data = JSON.parse(trimmed);
+          if (data.status === PollStatus.Superseded) {
+            process.exit(0);
+          }
+          console.log(JSON.stringify(data, null, 2));
+        } catch {
+          console.log(trimmed);
+        }
+      });
+    });
+
+    req.on("error", (err) => {
+      console.error(pc.red(`\nPoll error: ${err.message}`));
+      process.exit(1);
+    });
+
+    return;
+  }
+
+  console.log(`\n${pc.bold(pc.yellow("⚠️  MANDATORY REVIEW GATE:"))}`);
   console.log(
-    `\n${pc.dim("Next step:")} Run ${pc.cyan(`zenspec poll "${targetFile}"`)} to wait for human feedback.\n`,
+    `  Run ${pc.cyan(`zenspec poll "${targetFile}"`)} to wait for human feedback & approval.`,
   );
+  console.log(`  Or use default auto-polling: ${pc.cyan(`zenspec "${targetFile}"`)}\n`);
 }
 
 function printHelp() {
@@ -444,7 +491,8 @@ function printHelp() {
 ${pc.bold(pc.cyan("ZenSpec"))} - Minimalist, token-efficient Agent Experience Interface (AXI) for Markdown & HTML artifacts
 
 ${pc.bold("USAGE:")}
-  zenspec <file|dir>                   Open or resume review session in browser
+  zenspec <file|dir>                   Open review session in browser AND wait for feedback (default)
+  zenspec <file|dir> --no-poll         Open review session in background without waiting
   zenspec poll <file>                  Wait for human feedback via long-polling
   zenspec approve <file> [--notes ".."] Approve plan & authorize agent to proceed
   zenspec reply <file> -m "..."        Send progress message to browser conversation
@@ -457,6 +505,7 @@ ${pc.bold("USAGE:")}
   zenspec stop                         Stop local background daemon
 
 ${pc.bold("FLAGS:")}
+  --no-poll, --detach, -d              Launch review without blocking on feedback
   --share                              Start secure remote tunnel for Codespaces/remote dev
   --no-open                            Start/resume session without launching browser
   --agent-reply "<msg>"                Attach agent reply when polling

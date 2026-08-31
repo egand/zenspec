@@ -17,6 +17,8 @@ import {
 let sessionKey = "";
 let currentFilePath = "";
 let queuedPrompts: PromptItem[] = [];
+let resolvedPrompts: PromptItem[] = [];
+let workspaceFiles: any[] = [];
 let activeDiffs: DiffRange[] = [];
 let diffsVisible = true;
 let modalMode: "comment" | "suggest" = "comment";
@@ -27,6 +29,8 @@ let activeHighlight: {
   endLine: number;
   headingContext?: string;
 } | null = null;
+
+let activeEventSource: EventSource | null = null;
 
 function extractSessionKey(): string {
   const pathParts = window.location.pathname.split("/").filter(Boolean);
@@ -55,8 +59,11 @@ function updateApprovalState(isApproved: boolean, approvedAt?: string) {
 // -----------------------------------------------------------------------------
 // Document Loading and Rendering
 // -----------------------------------------------------------------------------
-async function loadDocument(targetRelFile?: string) {
+async function loadDocument(targetRelFile?: string, isHotReload = false) {
   if (!sessionKey) return;
+  const canvas = document.getElementById("zen-canvas");
+  const savedScrollTop = canvas?.scrollTop ?? 0;
+
   try {
     const url = targetRelFile
       ? `/api/${sessionKey}/document?file=${encodeURIComponent(targetRelFile)}`
@@ -76,6 +83,12 @@ async function loadDocument(targetRelFile?: string) {
 
     // Update Approval State
     updateApprovalState(Boolean(data.approved), data.approvedAt);
+
+    // Update prompts and resolved items
+    queuedPrompts = data.queuedPrompts || [];
+    resolvedPrompts =
+      data.resolvedPrompts ||
+      (data.promptHistory || []).filter((p: any) => p.status === "resolved");
 
     // Render Canvas
     const container = document.getElementById("zen-document-view");
@@ -152,11 +165,23 @@ async function loadDocument(targetRelFile?: string) {
       setupIframeInspector();
     }
 
+    // Restore scroll position on hot reload
+    if (isHotReload && canvas) {
+      canvas.scrollTop = savedScrollTop;
+    }
+
+    // Render Queue and Resolved Feedback
+    renderQueue();
+    renderResolved();
+
     // Render Margin Comment Pin Indicators
     renderMarginPins();
 
     // Render Chat History
     renderChat(data.chatHistory || []);
+
+    // Refresh active state in Workspace File Explorer
+    renderWorkspaceList();
   } catch (err: any) {
     console.error("Load document error:", err);
     showToast(`Error loading document: ${err.message}`);
@@ -542,7 +567,7 @@ function setupIframeInspector() {
 }
 
 // -----------------------------------------------------------------------------
-// Workspace Multi-Document Loading
+// Workspace Multi-Document Loading & File Explorer
 // -----------------------------------------------------------------------------
 async function loadWorkspaceList() {
   if (!sessionKey) return;
@@ -550,26 +575,95 @@ async function loadWorkspaceList() {
     const res = await fetch(`/api/${sessionKey}/workspace`);
     if (!res.ok) return;
     const data = await res.json();
-    const select = document.getElementById("zen-workspace-select") as HTMLSelectElement;
-
-    if (select && data.files && data.files.length > 1) {
-      select.style.display = "inline-block";
-      select.innerHTML = data.files
-        .map(
-          (f: any) =>
-            `<option value="${escapeHtml(f.relPath)}" ${
-              f.relPath === currentFilePath ? "selected" : ""
-            }>📄 ${escapeHtml(f.relPath)}</option>`,
-        )
-        .join("");
-
-      select.onchange = () => {
-        loadDocument(select.value);
-      };
-    }
-  } catch {
-    // Single-file mode
+    workspaceFiles = data.files || [];
+    renderWorkspaceList();
+  } catch (err) {
+    console.debug("Workspace scan error", err);
   }
+}
+
+function renderWorkspaceList(filterText = "") {
+  const listEl = document.getElementById("zen-files-list");
+  const countEl = document.getElementById("zen-files-count");
+  if (!listEl) return;
+
+  if (countEl) countEl.textContent = String(workspaceFiles.length);
+
+  const filtered = filterText
+    ? workspaceFiles.filter((f) => f.relPath.toLowerCase().includes(filterText.toLowerCase()))
+    : workspaceFiles;
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<div class="zen-empty-files">${
+      filterText ? "No matching documents found" : "No documents found in workspace"
+    }</div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered
+    .map((f) => {
+      const isActive =
+        f.relPath === currentFilePath ||
+        f.absPath === currentFilePath ||
+        (f.sessionKey && f.sessionKey === sessionKey);
+      const badgeText = f.docType === "html" ? "HTML" : "MD";
+      const statusTags: string[] = [];
+
+      if (f.approved) {
+        statusTags.push('<span class="zen-file-tag zen-file-tag-approved">✓ Approved</span>');
+      }
+      if (f.queuedCount && f.queuedCount > 0) {
+        statusTags.push(
+          `<span class="zen-file-tag zen-file-tag-pending">💬 ${f.queuedCount}</span>`,
+        );
+      }
+
+      const dirName = f.relPath.includes("/") ? f.relPath.slice(0, f.relPath.lastIndexOf("/")) : "";
+      const fileName = f.relPath.includes("/")
+        ? f.relPath.slice(f.relPath.lastIndexOf("/") + 1)
+        : f.relPath;
+
+      return `
+      <div class="zen-file-card ${isActive ? "active" : ""}" data-relpath="${escapeHtml(
+        f.relPath,
+      )}" data-key="${f.sessionKey || ""}">
+        <div class="zen-file-row">
+          <div class="zen-file-title">
+            <span class="zen-file-badge">${badgeText}</span>
+            <span title="${escapeHtml(f.relPath)}">${escapeHtml(fileName)}</span>
+          </div>
+          ${statusTags.join("")}
+        </div>
+        ${
+          dirName
+            ? `<div class="zen-file-meta" title="${escapeHtml(dirName)}">${escapeHtml(
+                dirName,
+              )}</div>`
+            : ""
+        }
+      </div>`;
+    })
+    .join("");
+
+  listEl.querySelectorAll(".zen-file-card").forEach((card: any) => {
+    card.addEventListener("click", () => {
+      const relPath = card.dataset.relpath;
+      const targetKey = card.dataset.key;
+      if (relPath) {
+        switchDocument(relPath, targetKey);
+      }
+    });
+  });
+}
+
+function switchDocument(relPath: string, targetKey?: string) {
+  if (targetKey && targetKey !== sessionKey) {
+    sessionKey = targetKey;
+    window.history.pushState(null, "", `/session/${targetKey}`);
+    setupEventStream();
+  }
+  loadDocument(relPath);
+  showToast(`📄 Switched to: ${relPath}`);
 }
 
 // -----------------------------------------------------------------------------
@@ -577,10 +671,15 @@ async function loadWorkspaceList() {
 // -----------------------------------------------------------------------------
 function setupEventStream() {
   if (!sessionKey) return;
+  if (activeEventSource) {
+    activeEventSource.close();
+    activeEventSource = null;
+  }
+
   const es = new EventSource(`/events/${sessionKey}`);
+  activeEventSource = es;
 
   es.addEventListener(ServerEvent.Reload, (e: MessageEvent) => {
-    showToast("⟳ File updated on disk. Re-rendering...");
     try {
       const data = JSON.parse(e.data);
       if (data.diffs) {
@@ -589,7 +688,8 @@ function setupEventStream() {
     } catch {
       // Ignore
     }
-    loadDocument(currentFilePath);
+    loadDocument(currentFilePath, true);
+    showToast("⚡ Hot reloaded: document updated on disk");
   });
 
   es.addEventListener(ServerEvent.Diff, (e: MessageEvent) => {
@@ -639,6 +739,32 @@ function setupEventStream() {
       showToast("✅ Plan approved! Agent is authorized to proceed with implementation.");
     } catch (err) {
       console.debug("SSE approved parse error", err);
+    }
+  });
+
+  es.addEventListener(ServerEvent.Prompts, (e: MessageEvent) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.history) {
+        resolvedPrompts = data.history.filter((p: any) => p.status === "resolved");
+      }
+      renderQueue();
+      renderResolved();
+      renderMarginPins();
+    } catch (err) {
+      console.debug("SSE prompts parse error", err);
+    }
+  });
+
+  es.addEventListener(ServerEvent.Workspace, (e: MessageEvent) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.files) {
+        workspaceFiles = data.files;
+        renderWorkspaceList();
+      }
+    } catch (err) {
+      console.debug("SSE workspace parse error", err);
     }
   });
 
@@ -843,10 +969,10 @@ function queueOrReplacePrompt(item: PromptItem) {
 
 function renderQueue() {
   const listEl = document.getElementById("zen-queue-list");
-  const countEl = document.getElementById("zen-queue-count");
-  if (!listEl || !countEl) return;
+  const countEl = document.getElementById("zen-pending-count");
+  if (!listEl) return;
 
-  countEl.textContent = String(queuedPrompts.length);
+  if (countEl) countEl.textContent = String(queuedPrompts.length);
 
   if (queuedPrompts.length === 0) {
     listEl.innerHTML =
@@ -897,6 +1023,110 @@ function renderQueue() {
   });
 }
 
+function renderResolved() {
+  const listEl = document.getElementById("zen-resolved-list");
+  const countEl = document.getElementById("zen-resolved-count");
+  if (!listEl) return;
+
+  if (countEl) countEl.textContent = String(resolvedPrompts.length);
+
+  if (resolvedPrompts.length === 0) {
+    listEl.innerHTML =
+      '<div class="zen-empty-resolved">No resolved questions or comments yet. When the agent applies modifications or replies, they will appear here with jump links to the changed lines.</div>';
+    return;
+  }
+
+  listEl.innerHTML = resolvedPrompts
+    .map((p) => {
+      const mdTarget = p.target?.type === TargetType.MarkdownRange ? p.target : undefined;
+      const targetLine = p.resolution?.startLine || mdTarget?.startLine || 1;
+      const endLine = p.resolution?.endLine || mdTarget?.endLine || targetLine;
+      const lineInfo = `Lines ${targetLine}${endLine && endLine !== targetLine ? `-${endLine}` : ""}`;
+
+      let resolutionContent = "";
+      if (p.resolution?.agentReply) {
+        resolutionContent += `<div class="zen-resolved-reply">💬 Agent: ${escapeHtml(
+          p.resolution.agentReply,
+        )}</div>`;
+      }
+      if (p.resolution?.diffSummary) {
+        resolutionContent += `<div class="zen-resolved-diff-preview">${escapeHtml(
+          p.resolution.diffSummary,
+        )}</div>`;
+      }
+
+      return `
+      <div class="zen-resolved-card" data-start="${targetLine}" data-end="${endLine}">
+        <div class="zen-resolved-card-meta">
+          <span>✓ [${p.tag.toUpperCase()}] ${lineInfo}</span>
+          <span style="font-size:0.7rem;color:var(--text-muted);">${
+            p.resolvedAt ? new Date(p.resolvedAt).toLocaleTimeString() : "Resolved"
+          }</span>
+        </div>
+        <div class="zen-resolved-question-text">${escapeHtml(p.text)}</div>
+        <div class="zen-resolution-banner">
+          <div class="zen-resolution-header">
+            <span>📍 Modification pointer</span>
+            <button type="button" class="zen-jump-btn" data-start="${targetLine}" data-end="${endLine}">
+              📍 Jump & Highlight
+            </button>
+          </div>
+          ${resolutionContent}
+        </div>
+      </div>`;
+    })
+    .join("");
+
+  listEl.querySelectorAll(".zen-jump-btn, .zen-resolved-card").forEach((el: any) => {
+    el.addEventListener("click", (e: MouseEvent) => {
+      e.stopPropagation();
+      const startLine = parseInt(
+        el.dataset.start || el.closest("[data-start]")?.dataset.start || "1",
+        10,
+      );
+      const endLine = parseInt(
+        el.dataset.end || el.closest("[data-end]")?.dataset.end || String(startLine),
+        10,
+      );
+      jumpAndHighlightLine(startLine, endLine);
+    });
+  });
+}
+
+function jumpAndHighlightLine(startLine?: number, endLine?: number) {
+  const container = document.getElementById("zen-document-view");
+  if (!container) return;
+
+  const targetLine = startLine || 1;
+  let targetEl = container.querySelector(`[data-line-start="${targetLine}"]`) as HTMLElement | null;
+
+  if (!targetEl) {
+    // Search for closest element containing target line
+    const allLineEls = Array.from(container.querySelectorAll("[data-line-start]"));
+    for (const el of allLineEls) {
+      const sl = parseInt(el.getAttribute("data-line-start") || "0", 10);
+      const elEnd = parseInt(el.getAttribute("data-line-end") || String(sl), 10);
+      if (targetLine >= sl && targetLine <= elEnd) {
+        targetEl = el as HTMLElement;
+        break;
+      }
+    }
+  }
+
+  if (targetEl) {
+    targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    targetEl.classList.remove("zen-resolved-highlight");
+    void targetEl.offsetWidth; // force DOM reflow
+    targetEl.classList.add("zen-resolved-highlight");
+    setTimeout(() => {
+      targetEl?.classList.remove("zen-resolved-highlight");
+    }, 2800);
+    showToast(`📍 Highlighted modified lines ${targetLine}-${endLine || targetLine}`);
+  } else {
+    showToast(`Line ${targetLine} in document.`);
+  }
+}
+
 async function sendPrompts(shouldEndSession = false) {
   if (queuedPrompts.length === 0 && !shouldEndSession) {
     showToast("No feedback items queued.");
@@ -914,6 +1144,11 @@ async function sendPrompts(shouldEndSession = false) {
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const resData = await res.json();
+
+    if (resData.history) {
+      resolvedPrompts = resData.history.filter((p: any) => p.status === "resolved");
+    }
 
     showToast(
       shouldEndSession
@@ -923,6 +1158,7 @@ async function sendPrompts(shouldEndSession = false) {
 
     queuedPrompts = [];
     renderQueue();
+    renderResolved();
     renderMarginPins();
   } catch (err: any) {
     console.error("Send prompts error:", err);
@@ -1073,6 +1309,58 @@ function setupUiListeners() {
     }
   };
   document.getElementById("zen-toggle-sidebar")?.addEventListener("click", toggleSidebar);
+
+  // Left Sidebar Tabs (Documents vs Outline)
+  const tabFiles = document.getElementById("zen-tab-files");
+  const tabOutline = document.getElementById("zen-tab-outline");
+  const filesView = document.getElementById("zen-files-view");
+  const outlineView = document.getElementById("zen-outline-view");
+
+  const activateFilesTab = () => {
+    tabFiles?.classList.add("active");
+    tabOutline?.classList.remove("active");
+    if (filesView) filesView.style.display = "flex";
+    if (outlineView) outlineView.style.display = "none";
+  };
+
+  const activateOutlineTab = () => {
+    tabOutline?.classList.add("active");
+    tabFiles?.classList.remove("active");
+    if (outlineView) outlineView.style.display = "flex";
+    if (filesView) filesView.style.display = "none";
+  };
+
+  tabFiles?.addEventListener("click", activateFilesTab);
+  tabOutline?.addEventListener("click", activateOutlineTab);
+
+  // Documents search filter
+  const filterInput = document.getElementById("zen-files-filter") as HTMLInputElement | null;
+  filterInput?.addEventListener("input", () => {
+    renderWorkspaceList(filterInput.value.trim());
+  });
+
+  // Right Sidebar Tabs (Pending vs Resolved)
+  const tabPending = document.getElementById("zen-tab-pending");
+  const tabResolved = document.getElementById("zen-tab-resolved");
+  const queueList = document.getElementById("zen-queue-list");
+  const resolvedList = document.getElementById("zen-resolved-list");
+  const actionChips = document.getElementById("zen-action-chips");
+
+  tabPending?.addEventListener("click", () => {
+    tabPending.classList.add("active");
+    tabResolved?.classList.remove("active");
+    if (queueList) queueList.style.display = "flex";
+    if (actionChips) actionChips.style.display = "flex";
+    if (resolvedList) resolvedList.style.display = "none";
+  });
+
+  tabResolved?.addEventListener("click", () => {
+    tabResolved.classList.add("active");
+    tabPending?.classList.remove("active");
+    if (resolvedList) resolvedList.style.display = "flex";
+    if (queueList) queueList.style.display = "none";
+    if (actionChips) actionChips.style.display = "none";
+  });
 
   // Shortcuts Modal
   const shortcutsModal = document.getElementById("zen-shortcuts-modal");
@@ -1269,6 +1557,12 @@ function setupUiListeners() {
     if (e.key === "a" || e.key === "A") {
       e.preventDefault();
       document.getElementById("zen-approve-btn")?.click();
+    } else if (e.key === "f" || e.key === "F") {
+      e.preventDefault();
+      activateFilesTab();
+    } else if (e.key === "o" || e.key === "O") {
+      e.preventDefault();
+      activateOutlineTab();
     } else if (e.key === "c" || e.key === "C") {
       if (activeHighlight) {
         e.preventDefault();

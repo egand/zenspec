@@ -88,14 +88,51 @@
 
       <!-- Main Workspace Area -->
       <div class="zen-workspace">
-        <!-- Left Sidebar: Table of Contents & Outline -->
-        <aside class="zen-toc-panel" id="zen-toc-panel">
-          <div class="zen-toc-header">
-            <h4>📑 Outline</h4>
-            <span class="zen-read-time" id="zen-read-time">~1 min</span>
+        <!-- Left Sidebar: Multi-Document Explorer & Outline -->
+        <aside class="zen-left-panel" id="zen-left-panel">
+          <div class="zen-left-tabs">
+            <button
+              type="button"
+              class="zen-tab-btn active"
+              id="zen-tab-files"
+              title="Workspace Documents (f)"
+            >
+              📁 Documents (<span id="zen-files-count">1</span>)
+            </button>
+            <button
+              type="button"
+              class="zen-tab-btn"
+              id="zen-tab-outline"
+              title="Table of Contents (o)"
+            >
+              📑 Outline
+            </button>
           </div>
-          <div class="zen-toc-list" id="zen-toc-list">
-            <div class="zen-empty-toc">No headings found</div>
+
+          <!-- Documents / File Explorer View -->
+          <div class="zen-files-view" id="zen-files-view">
+            <div class="zen-files-filter-bar">
+              <input
+                type="text"
+                id="zen-files-filter"
+                placeholder="Filter documents... (f)"
+                class="zen-filter-input"
+              />
+            </div>
+            <div class="zen-files-list" id="zen-files-list">
+              <div class="zen-empty-files">Scanning workspace documents...</div>
+            </div>
+          </div>
+
+          <!-- Outline / TOC View -->
+          <div class="zen-outline-view" id="zen-outline-view" style="display: none">
+            <div class="zen-toc-header">
+              <h4>Document Sections</h4>
+              <span class="zen-read-time" id="zen-read-time">~1 min</span>
+            </div>
+            <div class="zen-toc-list" id="zen-toc-list">
+              <div class="zen-empty-toc">No headings found</div>
+            </div>
           </div>
         </aside>
 
@@ -109,15 +146,15 @@
         <!-- Right Sidebar: Conversation & Feedback Queue -->
         <aside class="zen-sidebar" id="zen-sidebar">
           <div class="zen-sidebar-header">
-            <h3>💬 Queue (<span id="zen-queue-count">0</span>)</h3>
+            <h3>💬 Feedback</h3>
             <div class="zen-sidebar-header-actions">
               <button
                 type="button"
                 class="zen-icon-btn-sm"
                 id="zen-copy-prompt-btn"
-                title="Copy all queued feedback as prompt for web chat"
+                title="Copy queued feedback as prompt for web chat"
               >
-                📋 Copy Prompt
+                📋 Copy
               </button>
               <button
                 type="button"
@@ -130,18 +167,36 @@
             </div>
           </div>
 
-          <!-- Quick Action Directive Chips -->
-          <div class="zen-action-chips">
+          <!-- Queue Section Tabs: Pending vs Resolved -->
+          <div class="zen-queue-tabs">
+            <button type="button" class="zen-queue-tab-btn active" id="zen-tab-pending">
+              ⏳ Pending (<span id="zen-pending-count">0</span>)
+            </button>
+            <button type="button" class="zen-queue-tab-btn" id="zen-tab-resolved">
+              ✅ Resolved (<span id="zen-resolved-count">0</span>)
+            </button>
+          </div>
+
+          <!-- Quick Action Directive Chips (shown in Pending tab) -->
+          <div class="zen-action-chips" id="zen-action-chips">
             <button type="button" class="zen-chip" data-action="diagram">⚡ Add Diagram</button>
             <button type="button" class="zen-chip" data-action="concise">✂️ Make Concise</button>
             <button type="button" class="zen-chip" data-action="testcases">🧪 Add Tests</button>
             <button type="button" class="zen-chip" data-action="table">📐 Turn to Table</button>
           </div>
 
-          <!-- Queued Prompts List -->
+          <!-- Pending Feedback List -->
           <div class="zen-queue-list" id="zen-queue-list">
             <div class="zen-empty-queue">
               Highlight text to comment or suggest edits, or answer interactive decision cards.
+            </div>
+          </div>
+
+          <!-- Resolved Feedback List -->
+          <div class="zen-resolved-list" id="zen-resolved-list" style="display: none">
+            <div class="zen-empty-resolved">
+              No resolved questions or comments yet. When the agent applies modifications or
+              replies, they will appear here with jump links to the changed lines.
             </div>
           </div>
 
@@ -149,7 +204,7 @@
           <div class="zen-chat-stream" id="zen-chat-stream"></div>
 
           <!-- Bottom Sticky Composer -->
-          <div class="zen-composer">
+          <div class="zen-composer" id="zen-composer">
             <textarea
               id="zen-composer-input"
               placeholder="Type a note or question for the agent... (Enter to queue, Cmd+Enter to send)"
@@ -263,6 +318,10 @@
             <div class="zen-shortcut-row">
               <kbd>a</kbd><span>Approve plan & authorize implementation</span>
             </div>
+            <div class="zen-shortcut-row">
+              <kbd>f</kbd><span>Switch to Documents explorer</span>
+            </div>
+            <div class="zen-shortcut-row"><kbd>o</kbd><span>Switch to Document Outline</span></div>
             <div class="zen-shortcut-row">
               <kbd>c</kbd><span>Add comment on selected text</span>
             </div>

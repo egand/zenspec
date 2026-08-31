@@ -58,6 +58,13 @@ export const TargetType = {
 } as const;
 export type TargetType = (typeof TargetType)[keyof typeof TargetType];
 
+export const PromptItemStatus = {
+  Pending: "pending",
+  Submitted: "submitted",
+  Resolved: "resolved",
+} as const;
+export type PromptItemStatus = (typeof PromptItemStatus)[keyof typeof PromptItemStatus];
+
 export const ServerEvent = {
   Presence: "presence",
   Progress: "progress",
@@ -66,6 +73,8 @@ export const ServerEvent = {
   Approved: "approved",
   Ended: "ended",
   Reload: "reload",
+  Workspace: "workspace",
+  Prompts: "prompts",
 } as const;
 export type ServerEvent = (typeof ServerEvent)[keyof typeof ServerEvent];
 
@@ -106,6 +115,14 @@ export interface HtmlTarget {
   };
 }
 
+export interface PromptResolution {
+  resolvedAt: string;
+  startLine?: number;
+  endLine?: number;
+  diffSummary?: string;
+  agentReply?: string;
+}
+
 export interface PromptItem {
   id: string;
   queueKey?: string;
@@ -113,6 +130,9 @@ export interface PromptItem {
   text: string;
   target?: MarkdownTarget | HtmlTarget;
   createdAt: string;
+  status?: PromptItemStatus;
+  resolvedAt?: string;
+  resolution?: PromptResolution;
 }
 
 export interface ChatMessage {
@@ -136,6 +156,10 @@ export interface WorkspaceDocumentInfo {
   docType: DocumentType;
   sizeBytes: number;
   lastModified: number;
+  sessionKey?: string;
+  approved?: boolean;
+  queuedCount?: number;
+  resolvedCount?: number;
 }
 
 export interface DiffRange {
@@ -161,6 +185,7 @@ export interface SessionState {
   presence: AgentPresenceState;
   activeProgress?: AgentProgressUpdate;
   queuedPrompts: PromptItem[];
+  promptHistory: PromptItem[];
   chatHistory: ChatMessage[];
   lastModified: number;
   previousContent?: string;

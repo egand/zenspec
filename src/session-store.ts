@@ -20,6 +20,7 @@ import {
   PollStatus,
   DiffType,
   ServerEvent,
+  TargetType,
 } from "./types.js";
 
 const STATE_DIR = path.join(os.homedir(), ".zenspec");
@@ -96,7 +97,10 @@ export function computeLineDiff(oldStr: string, newStr: string): DiffRange[] {
   return diffs;
 }
 
-export function scanWorkspaceDocuments(dirPath: string): WorkspaceDocumentInfo[] {
+export function scanWorkspaceDocuments(
+  dirPath: string,
+  store?: SessionStore,
+): WorkspaceDocumentInfo[] {
   const results: WorkspaceDocumentInfo[] = [];
   if (!fs.existsSync(dirPath)) return results;
 
@@ -108,8 +112,21 @@ export function scanWorkspaceDocuments(dirPath: string): WorkspaceDocumentInfo[]
       return;
     }
 
+    // Sort entries: directories first, then files alphabetically
+    entries.sort((a, b) => {
+      if (a.isDirectory() && !b.isDirectory()) return -1;
+      if (!a.isDirectory() && b.isDirectory()) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
     for (const ent of entries) {
-      if (ent.name.startsWith(".") || ent.name === "node_modules" || ent.name === "dist") {
+      if (
+        ent.name.startsWith(".") ||
+        ent.name === "node_modules" ||
+        ent.name === "dist" ||
+        ent.name === ".git" ||
+        ent.name === "coverage"
+      ) {
         continue;
       }
       const full = path.join(current, ent.name);
@@ -120,12 +137,21 @@ export function scanWorkspaceDocuments(dirPath: string): WorkspaceDocumentInfo[]
         if (ext === ".md" || ext === ".markdown" || ext === ".html" || ext === ".htm") {
           try {
             const stat = fs.statSync(full);
+            const canonical = fs.realpathSync(full);
+            const key = sessionKey(canonical);
+            const session = store?.getSession(key);
+
             results.push({
               relPath: path.relative(dirPath, full),
               absPath: full,
               docType: ext === ".html" || ext === ".htm" ? DocType.Html : DocType.Markdown,
               sizeBytes: stat.size,
               lastModified: stat.mtimeMs,
+              sessionKey: key,
+              approved: session?.approved || false,
+              queuedCount: session?.queuedPrompts.length || 0,
+              resolvedCount:
+                session?.promptHistory.filter((p) => p.status === "resolved").length || 0,
             });
           } catch {
             // Ignore stat errors
@@ -187,14 +213,22 @@ export class SessionStore extends EventEmitter {
     let workspaceRoot = isDir ? targetFile : path.dirname(targetFile);
 
     if (isDir) {
-      const docs = scanWorkspaceDocuments(targetFile);
+      canonicalPath = fs.existsSync(targetFile)
+        ? fs.realpathSync(targetFile)
+        : path.resolve(targetFile);
+      workspaceRoot = canonicalPath;
+      const docs = scanWorkspaceDocuments(canonicalPath);
       const firstDoc = docs.find((d) => d.relPath.endsWith("README.md")) || docs[0];
-      canonicalPath = firstDoc ? firstDoc.absPath : path.join(targetFile, "index.md");
-      workspaceRoot = targetFile;
+      canonicalPath = firstDoc ? firstDoc.absPath : path.join(canonicalPath, "index.md");
     } else {
       canonicalPath = fs.existsSync(targetFile)
         ? fs.realpathSync(targetFile)
         : path.resolve(targetFile);
+      if (canonicalPath.startsWith(process.cwd())) {
+        workspaceRoot = process.cwd();
+      } else {
+        workspaceRoot = path.dirname(canonicalPath);
+      }
     }
 
     const key = sessionKey(canonicalPath);
@@ -220,6 +254,7 @@ export class SessionStore extends EventEmitter {
         approved: false,
         presence: AgentPresence.Waiting,
         queuedPrompts: [],
+        promptHistory: [],
         chatHistory: [],
         currentContent: initialContent,
         lastModified: fs.existsSync(canonicalPath)
@@ -233,6 +268,7 @@ export class SessionStore extends EventEmitter {
       session.canonicalPath = canonicalPath;
       session.docType = docType;
       session.workspaceRoot = workspaceRoot;
+      if (!session.promptHistory) session.promptHistory = [];
       if (session.approved === undefined) session.approved = false;
       if (options.token) session.token = options.token;
       if (!session.currentContent && initialContent) {
@@ -269,6 +305,11 @@ export class SessionStore extends EventEmitter {
     session.currentContent = newContent;
     session.diffs = diffs;
     session.lastModified = Date.now();
+
+    if (diffs.length > 0) {
+      this.resolvePromptsWithDiff(key, diffs);
+    }
+
     this.persistState();
 
     this.emit(`${ServerEvent.Diff}:${key}`, { diffs, lastModified: session.lastModified });
@@ -299,11 +340,137 @@ export class SessionStore extends EventEmitter {
     const session = this.sessions.get(key);
     if (!session) return;
 
-    session.queuedPrompts.push(prompt);
+    prompt.status = prompt.status || "pending";
+
+    if (prompt.queueKey) {
+      const idx = session.queuedPrompts.findIndex((p) => p.queueKey === prompt.queueKey);
+      if (idx !== -1) {
+        session.queuedPrompts[idx] = prompt;
+      } else {
+        session.queuedPrompts.push(prompt);
+      }
+    } else {
+      session.queuedPrompts.push(prompt);
+    }
+
     this.persistState();
     this.emit(`prompt:${key}`, prompt);
+    this.emit(`${ServerEvent.Prompts}:${key}`, {
+      queued: session.queuedPrompts,
+      history: session.promptHistory,
+    });
 
     this.flushPollWaiters(key);
+  }
+
+  public recordSubmittedPrompts(key: string, prompts: PromptItem[]): void {
+    const session = this.sessions.get(key);
+    if (!session) return;
+    if (!session.promptHistory) session.promptHistory = [];
+
+    for (const p of prompts) {
+      const submittedItem: PromptItem = {
+        ...p,
+        status: "submitted",
+      };
+
+      // Replace or append in prompt history
+      const histIdx = session.promptHistory.findIndex(
+        (h) => h.id === p.id || (p.queueKey && h.queueKey === p.queueKey),
+      );
+      if (histIdx !== -1) {
+        session.promptHistory[histIdx] = submittedItem;
+      } else {
+        session.promptHistory.push(submittedItem);
+      }
+    }
+
+    this.persistState();
+    this.emit(`${ServerEvent.Prompts}:${key}`, {
+      queued: session.queuedPrompts,
+      history: session.promptHistory,
+    });
+  }
+
+  public resolvePrompt(
+    key: string,
+    promptId: string,
+    resolution: {
+      startLine?: number;
+      endLine?: number;
+      diffSummary?: string;
+      agentReply?: string;
+    },
+  ): boolean {
+    const session = this.sessions.get(key);
+    if (!session) return false;
+    if (!session.promptHistory) session.promptHistory = [];
+
+    const prompt = session.promptHistory.find((p) => p.id === promptId);
+    if (!prompt) return false;
+
+    prompt.status = "resolved";
+    prompt.resolvedAt = new Date().toISOString();
+    prompt.resolution = {
+      resolvedAt: prompt.resolvedAt,
+      startLine: resolution.startLine,
+      endLine: resolution.endLine,
+      diffSummary: resolution.diffSummary,
+      agentReply: resolution.agentReply,
+    };
+
+    this.persistState();
+    this.emit(`${ServerEvent.Prompts}:${key}`, {
+      queued: session.queuedPrompts,
+      history: session.promptHistory,
+    });
+    return true;
+  }
+
+  public resolvePromptsWithDiff(key: string, diffs: DiffRange[]): void {
+    const session = this.sessions.get(key);
+    if (!session || !diffs || diffs.length === 0) return;
+    if (!session.promptHistory) session.promptHistory = [];
+
+    const submitted = session.promptHistory.filter(
+      (p) => p.status === "submitted" || p.status === "pending",
+    );
+    if (submitted.length === 0) return;
+
+    for (const p of submitted) {
+      let matchedDiff: DiffRange | undefined;
+      const mdTarget = p.target?.type === TargetType.MarkdownRange ? p.target : undefined;
+
+      if (mdTarget && mdTarget.startLine) {
+        // Look for overlapping or nearby diff
+        matchedDiff = diffs.find(
+          (d) =>
+            (mdTarget.startLine <= d.endLine &&
+              (mdTarget.endLine || mdTarget.startLine) >= d.startLine) ||
+            Math.abs(d.startLine - mdTarget.startLine) <= 5,
+        );
+      }
+
+      if (!matchedDiff) {
+        // Default to first diff
+        matchedDiff = diffs[0];
+      }
+
+      p.status = "resolved";
+      p.resolvedAt = new Date().toISOString();
+      p.resolution = {
+        resolvedAt: p.resolvedAt,
+        startLine: matchedDiff.startLine,
+        endLine: matchedDiff.endLine,
+        diffSummary: matchedDiff.newText ? matchedDiff.newText.slice(0, 150) : undefined,
+      };
+    }
+
+    this.persistState();
+    this.emit(`${ServerEvent.Prompts}:${key}`, {
+      queued: session.queuedPrompts,
+      history: session.promptHistory,
+    });
   }
 
   public addChatMessage(key: string, sender: ActorRole, text: string): ChatMessage {
@@ -317,8 +484,35 @@ export class SessionStore extends EventEmitter {
 
     if (session) {
       session.chatHistory.push(msg);
+
+      // If Agent replied, attach agentReply to recently submitted or resolved prompts that don't have it
+      if (sender === ActorRole.Agent && session.promptHistory) {
+        for (let i = session.promptHistory.length - 1; i >= 0; i--) {
+          const p = session.promptHistory[i];
+          if (p.status === "submitted") {
+            p.status = "resolved";
+            p.resolvedAt = new Date().toISOString();
+            p.resolution = {
+              resolvedAt: p.resolvedAt,
+              startLine:
+                p.target?.type === TargetType.MarkdownRange ? p.target.startLine : undefined,
+              endLine: p.target?.type === TargetType.MarkdownRange ? p.target.endLine : undefined,
+              agentReply: text,
+            };
+            break;
+          } else if (p.status === "resolved" && p.resolution && !p.resolution.agentReply) {
+            p.resolution.agentReply = text;
+            break;
+          }
+        }
+      }
+
       this.persistState();
       this.emit(`${ServerEvent.Chat}:${key}`, msg);
+      this.emit(`${ServerEvent.Prompts}:${key}`, {
+        queued: session.queuedPrompts,
+        history: session.promptHistory,
+      });
     }
 
     return msg;
@@ -382,6 +576,21 @@ export class SessionStore extends EventEmitter {
     if (!session) return [];
     const prompts = [...session.queuedPrompts];
     session.queuedPrompts = [];
+    if (!session.promptHistory) session.promptHistory = [];
+
+    for (const p of prompts) {
+      const submittedItem: PromptItem = {
+        ...p,
+        status: "submitted",
+      };
+      const histIdx = session.promptHistory.findIndex((h) => h.id === p.id);
+      if (histIdx !== -1) {
+        session.promptHistory[histIdx] = submittedItem;
+      } else {
+        session.promptHistory.push(submittedItem);
+      }
+    }
+
     this.persistState();
     return prompts;
   }
