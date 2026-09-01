@@ -61,24 +61,7 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
     expect(data.count).toBeDefined();
   });
 
-  it("executes zen_open_review in detached mode and registers session in store", async () => {
-    const result: any = await client.callTool({
-      name: McpToolName.OpenReview,
-      arguments: { filePath: testFile, noOpen: true, autoPoll: false },
-    });
-
-    expect(result.content).toBeDefined();
-    const data = JSON.parse(result.content[0].text);
-    expect(data.success).toBe(true);
-    expect(data.key).toBeDefined();
-    expect(data.url).toContain(data.key);
-
-    const session = store.getSession(data.key);
-    expect(session).toBeDefined();
-    expect(session?.canonicalPath).toBe(fs.realpathSync(testFile));
-  });
-
-  it("executes zen_open_review with autoPoll and returns queued feedback", async () => {
+  it("executes zen_open_review with mandatory polling and returns queued feedback", async () => {
     const canonical = fs.realpathSync(testFile);
     const session = store.getOrCreateSession(canonical);
     store.queuePrompt(session.key, {
@@ -90,7 +73,7 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
 
     const result: any = await client.callTool({
       name: McpToolName.OpenReview,
-      arguments: { filePath: testFile, noOpen: true, autoPoll: true },
+      arguments: { filePath: testFile, noOpen: true },
     });
 
     expect(result.content).toBeDefined();
@@ -98,6 +81,22 @@ describe("Zen Native MCP Server End-to-End Tools", () => {
     expect(data.status).toBe(PollStatus.Feedback);
     expect(data.prompts.length).toBe(1);
     expect(data.prompts[0].text).toBe("Clarify system diagram");
+  });
+
+  it("executes zen_open_review and resolves when plan is already approved", async () => {
+    const canonical = fs.realpathSync(testFile);
+    const session = store.getOrCreateSession(canonical);
+    store.approveSession(session.key, "Approved already");
+
+    const result: any = await client.callTool({
+      name: McpToolName.OpenReview,
+      arguments: { filePath: testFile, noOpen: true },
+    });
+
+    expect(result.content).toBeDefined();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.status).toBe(PollStatus.Approved);
+    expect(data.approved).toBe(true);
   });
 
   it("executes zen_reply and delivers agent chat message", async () => {

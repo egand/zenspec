@@ -19,7 +19,7 @@ ZenSpec opens Markdown or HTML documents in a browser for interactive line-level
    - Write the document directly to the project's documentation directory: `docs/plans/<topic>.md`.
    - Format with standard GitHub-flavored Markdown, YAML frontmatter, KaTeX math (`$...$`), Mermaid diagrams (` ```mermaid `), or interactive question callouts (`> [!QUESTION]`, `> [!QUESTION:MULTI]`, `> [!QUESTION:RATING]`).
 
-2. **Open the Review Session & Wait for Feedback (Default Auto-Polling)**:
+2. **Open the Review Session & Wait for Feedback (Mandatory Polling)**:
    - Run `zenspec <file>` directly. It opens the browser AND automatically waits/polls for human reviewer feedback or plan approval:
      ```bash
      npx zenspec docs/plans/<topic>.md
@@ -27,10 +27,6 @@ ZenSpec opens Markdown or HTML documents in a browser for interactive line-level
    - For remote/container environments:
      ```bash
      npx zenspec docs/plans/<topic>.md --share
-     ```
-   - To launch in the background without blocking:
-     ```bash
-     npx zenspec docs/plans/<topic>.md --no-poll
      ```
 
 3. **Multi-Document Workspace Review**:
@@ -46,10 +42,10 @@ ZenSpec opens Markdown or HTML documents in a browser for interactive line-level
    npx zenspec progress docs/plans/<topic>.md --step "Running test suite" --status running
    ```
 
-5. **Wait for Human Feedback & Plan Approval (If started in background)**:
+5. **Continue Polling After Modifying Specification**:
 
    ```bash
-   npx zenspec poll docs/plans/<topic>.md
+   npx zenspec poll docs/plans/<topic>.md --agent-reply "Updated based on feedback"
    ```
 
 6. **Iterate on Specification (Live Hot Reload & Gated Implementation)**:
