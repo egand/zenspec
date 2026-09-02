@@ -1,11 +1,11 @@
 ---
 name: zenspec
-description: Create reviewable Markdown documentation (plans, RFCs, specs) or HTML UI mocks with real-time interactive browser annotation using the zenspec CLI.
+description: Use whenever creating, proposing, or reviewing implementation plans, architectural designs, technical RFCs, specifications, or HTML UI mockups. Launches the interactive ZenSpec browser reviewer to collect line-level feedback and plan approval before coding.
 license: MIT
 metadata:
   author: egand
-  argument-hint: <what the plan or document should specify>
-  hermes-tags: markdown, html, review, artifacts, visualization, spec, axi
+  argument-hint: <what the plan, RFC, or UI mock should specify>
+  hermes-tags: plan, implementation-plan, architecture, rfc, spec, review, markdown, html, approval, feedback
   hermes-category: productivity
 ---
 
