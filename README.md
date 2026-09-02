@@ -44,8 +44,7 @@ npm install -g zenspec
 
 | Command                          | Description                                                        |
 | :------------------------------- | :----------------------------------------------------------------- |
-| `zenspec <file\|dir>`            | Open review in browser AND wait for feedback (default auto-poll)   |
-| `zenspec <file\|dir> --no-poll`  | Open review in browser in background without blocking              |
+| `zenspec <file\|dir>`            | Open review in browser AND wait for feedback/approval (mandatory)  |
 | `zenspec poll <file>`            | Long-poll until human submits feedback or ends session             |
 | `zenspec approve <file>`         | Approve plan & authorize agent to proceed with implementation      |
 | `zenspec reply <file> -m "..."`  | Push agent progress/chat message to the browser conversation       |
@@ -59,7 +58,6 @@ npm install -g zenspec
 
 ### Flags
 
-- `--no-poll, --detach, -d`: Launch review without blocking on feedback.
 - `--share`: Launch secure remote sharing tunnel for GitHub Codespaces, remote containers, or LAN collaboration.
 - `--no-open`: Register and serve session without launching the default browser.
 - `--port <number>`: Specify custom port (default: `4388`).
@@ -69,9 +67,9 @@ npm install -g zenspec
 
 ## ⚡ Highlights & Key Features
 
-### 1. Default Auto-Polling (Eliminates Forgotten Polls)
+### 1. Mandatory Polling (Eliminates Forgotten Polls)
 
-Running `zenspec docs/plans/plan.md` starts the daemon, opens the browser, and automatically long-polls for human reviewer feedback or plan approval in a single blocking call. In MCP, `zen_open_review` defaults to `autoPoll: true`.
+Running `zenspec docs/plans/plan.md` starts the daemon, opens the browser, and automatically long-polls for human reviewer feedback or plan approval in a single blocking call. In MCP, `zen_open_review` always waits for reviewer interaction.
 
 ### 2. Multi-Document File Explorer
 

@@ -32,6 +32,7 @@ npm run format:check    # Prettier validation
 7. **Live In-Memory Hot Reloading**: File edits on disk automatically trigger instant in-place re-rendering via Server-Sent Events (`ServerEvent.Reload`) while preserving reviewer scroll positions and highlighting modified lines.
 8. **Multi-Document File Explorer**: Projects with multiple `.md` / `.html` files are reviewed in a single browser session with the Left File Explorer.
 9. **Resolved Feedback Tracking**: All addressed reviewer items transition to the Resolved queue section with interactive jump pointers that highlight agent modifications on the document canvas.
+10. **Mandatory Polling**: Polling for human feedback and plan approval is mandatory. Reviews cannot be detached or run without active polling.
 
 ## UI Verification & Screenshot Standards
 
