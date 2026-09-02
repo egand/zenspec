@@ -20,7 +20,7 @@ ZenSpec opens Markdown or HTML documents in a browser for interactive line-level
    - Format with standard GitHub-flavored Markdown, YAML frontmatter, KaTeX math (`$...$`), Mermaid diagrams (` ```mermaid `), or interactive question callouts (`> [!QUESTION]`, `> [!QUESTION:MULTI]`, `> [!QUESTION:RATING]`).
 
 2. **Open the Review Session & Wait for Feedback (Mandatory Polling)**:
-   - Run `zenspec <file>` directly. It opens the browser AND automatically waits/polls for human reviewer feedback or plan approval:
+   - Run `zenspec <file>` directly. It opens the browser AND automatically waits/polls for human reviewer feedback or plan approval. When feedback or approval arrives, it outputs the JSON payload to stdout and exits with code 0:
      ```bash
      npx zenspec docs/plans/<topic>.md
      ```
@@ -28,6 +28,13 @@ ZenSpec opens Markdown or HTML documents in a browser for interactive line-level
      ```bash
      npx zenspec docs/plans/<topic>.md --share
      ```
+
+   > [!TIP]
+   > **Agent Execution Pattern (Harness-Agnostic)**:
+   >
+   > - **Background / Async Tasks**: If your agent platform supports background command execution or async tasks, launch `zenspec` in the background and end your turn. The harness will automatically wake you up when the process finishes with the reviewer's feedback. Do NOT busy-poll or sleep in a loop.
+   > - **MCP Tools**: If your environment has ZenSpec MCP tools available, call `zen_open_review` with `{"filePath": "docs/plans/<topic>.md"}` to wait for reviewer response natively over JSON-RPC.
+   > - **Synchronous Shells**: If your platform only runs synchronous CLI commands, allow `zenspec` to wait for the human reviewer without aborting or timing out early.
 
 3. **Multi-Document Workspace Review**:
    - Review all documents in a folder or repository inside a single browser instance:
