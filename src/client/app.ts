@@ -121,8 +121,19 @@ async function loadDocument(targetRelFile?: string, isHotReload = false) {
               textColor: "#f0f6fc",
             },
           });
+          const mermaidNodes = container.querySelectorAll(".mermaid");
+          mermaidNodes.forEach((node) => {
+            if (node.textContent) {
+              node.textContent = node.textContent
+                .replace(/(\b\d+)\.\s+/g, "$1.\u00A0")
+                .replace(
+                  /(^|[\n\r]|<br\s*\/?>|["'[(>|])\s*[-*+]\s+/g,
+                  (_match, prefix) => prefix + "•\u00A0",
+                );
+            }
+          });
           (window as any).mermaid.run({
-            nodes: container.querySelectorAll(".mermaid"),
+            nodes: mermaidNodes,
           });
         } catch (e) {
           console.warn("Mermaid render error:", e);

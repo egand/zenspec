@@ -3,6 +3,7 @@ import {
   extractBlockLineRanges,
   parseFrontmatter,
   renderMarkdownWithSourceLines,
+  sanitizeMermaidSource,
 } from "../src/sourcemap.js";
 
 describe("Markdown Source-Line Mapping & AST Renderer", () => {
@@ -183,12 +184,41 @@ This is a test paragraph.
       }
     });
 
-    it("renders Mermaid diagrams with action button", () => {
-      const md = "```mermaid\ngraph LR;\n  A-->B;\n```";
+    it("renders Mermaid diagrams with action button and sanitizes list markers", () => {
+      const md = '```mermaid\ngraph LR;\n  A["1. Step One"]-->B["- Bullet item"];\n```';
       const html = renderMarkdownWithSourceLines(md);
       expect(html).toContain("zen-mermaid-container");
       expect(html).toContain("zen-diagram-comment-btn");
       expect(html).toContain("graph LR;");
+      // Verify numbered list was converted to non-breaking space
+      expect(html).toContain("1.\u00A0Step One");
+      // Verify bullet list was converted to bullet symbol
+      expect(html).toContain("•\u00A0Bullet item");
+    });
+
+    it("sanitizes Mermaid source to prevent 'Unsupported markdown: list' errors", () => {
+      const source = `graph TD
+  subgraph Phase1["Phase 1: Core Integrity"]
+    F1["1. First Feature"]
+    F2["2. Second Feature"]
+    F3["- Bullet A"]
+    F4["* Bullet B"]
+    F5["+ Bullet C"]
+  end
+  A --> B
+  B --- C
+  C -.- D`;
+
+      const sanitized = sanitizeMermaidSource(source);
+      expect(sanitized).toContain("1.\u00A0First Feature");
+      expect(sanitized).toContain("2.\u00A0Second Feature");
+      expect(sanitized).toContain("•\u00A0Bullet A");
+      expect(sanitized).toContain("•\u00A0Bullet B");
+      expect(sanitized).toContain("•\u00A0Bullet C");
+      // Ensure normal Mermaid connections are preserved
+      expect(sanitized).toContain("A --> B");
+      expect(sanitized).toContain("B --- C");
+      expect(sanitized).toContain("C -.- D");
     });
 
     it("renders Markdown tables with line-anchored wrappers", () => {

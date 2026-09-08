@@ -214,6 +214,31 @@ function renderFrontmatterCard(
 }
 
 /**
+ * Sanitizes Mermaid diagram source to prevent syntax errors caused by Mermaid's
+ * Markdown parser (such as "Unsupported markdown: list").
+ *
+ * 1. CommonMark ordered lists are triggered by a digit followed by a period and an ASCII space (e.g. "1. ").
+ *    By substituting the ASCII space with a non-breaking space (\u00A0), CommonMark does not parse it
+ *    as a list element, while rendering visually identical normal text in the SVG output.
+ * 2. Unordered lists (-, *, + followed by space) inside labels or at line beginnings are converted to
+ *    standard bullet points (•\u00A0), avoiding list parsing errors.
+ */
+export function sanitizeMermaidSource(source: string): string {
+  if (!source || typeof source !== "string") return source;
+
+  // Convert ordered list patterns: e.g. "1. " -> "1.\u00A0"
+  let sanitized = source.replace(/(\b\d+)\.\s+/g, "$1.\u00A0");
+
+  // Convert unordered list bullet markers at start of line, after newline, after <br>, or inside labels to "•\u00A0"
+  sanitized = sanitized.replace(
+    /(^|[\n\r]|<br\s*\/?>|["'[(>|])\s*[-*+]\s+/g,
+    (_match, prefix) => prefix + "•\u00A0",
+  );
+
+  return sanitized;
+}
+
+/**
  * Compiles Markdown to HTML with source line numbers injected into DOM tags
  */
 export function renderMarkdownWithSourceLines(markdownText: string): string {
@@ -266,11 +291,12 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
         const isMarkmap = language === "markmap";
 
         if (isMermaid) {
+          const sanitizedText = sanitizeMermaidSource(token.text);
           return `<div ${getAttr(
             range,
             "zen-mermaid-container",
           )} data-type="mermaid"><pre class="mermaid">${
-            token.text
+            sanitizedText
           }</pre><button type="button" class="zen-diagram-comment-btn" data-diagram-title="Mermaid Diagram">💬 Comment on Diagram</button></div>\n`;
         }
 
