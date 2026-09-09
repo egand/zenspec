@@ -477,11 +477,14 @@ export class ZenServer {
       return;
     }
 
-    // Workspace files API: /api/:key/workspace
-    const wsMatch = pathname.match(/^\/api\/([a-zA-Z0-9]+)\/workspace$/);
+    // Workspace files API: /api/workspace or /api/:key/workspace
+    const wsMatch = pathname.match(/^\/api\/(?:([a-zA-Z0-9]+)\/)?workspace$/);
     if (wsMatch && req.method === "GET") {
       const key = wsMatch[1];
-      const session = this.store.getSession(key);
+      const allSessions = this.store.getAllSessions();
+      const session = key
+        ? this.store.getSession(key)
+        : allSessions.find((s) => !s.ended) || allSessions[0];
 
       if (!session) {
         res.writeHead(404, { "Content-Type": "application/json" });

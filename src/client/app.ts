@@ -12,6 +12,7 @@ import {
   ServerEvent,
   ActorRole,
   ProgressStatus,
+  PromptItemStatus,
 } from "../types.js";
 
 let sessionKey = "";
@@ -31,6 +32,8 @@ let activeHighlight: {
 } | null = null;
 
 let activeEventSource: EventSource | null = null;
+let isRecovering = false;
+let recoveryTimeout: ReturnType<typeof setTimeout> | null = null;
 
 function extractSessionKey(): string {
   const pathParts = window.location.pathname.split("/").filter(Boolean);
@@ -70,7 +73,13 @@ async function loadDocument(targetRelFile?: string, isHotReload = false) {
       : `/api/${sessionKey}/document`;
 
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      if (res.status === 404) {
+        const recovered = await autoRecoverSession(targetRelFile);
+        if (recovered) return;
+      }
+      throw new Error(`HTTP ${res.status}`);
+    }
     const data = await res.json();
 
     currentFilePath = data.file;
@@ -777,9 +786,64 @@ function setupEventStream() {
     }
   });
 
-  es.onerror = () => {
-    // EventSource auto reconnects
+  es.onopen = () => {
+    if (recoveryTimeout) {
+      clearTimeout(recoveryTimeout);
+      recoveryTimeout = null;
+    }
   };
+
+  es.onerror = () => {
+    // Only attempt recovery if the server actively closed the connection (e.g. 404),
+    // and debounce to prevent repeated recovery attempts.
+    if (es.readyState === EventSource.CLOSED && !isRecovering) {
+      if (recoveryTimeout) clearTimeout(recoveryTimeout);
+      recoveryTimeout = setTimeout(async () => {
+        await autoRecoverSession();
+      }, 1500);
+    }
+  };
+}
+
+async function autoRecoverSession(targetPath?: string): Promise<boolean> {
+  if (isRecovering) return false;
+  isRecovering = true;
+  try {
+    const res = await fetch("/api/workspace");
+    if (!res.ok) return false;
+    const data = await res.json();
+    const files = data.files || [];
+    if (files.length === 0) return false;
+
+    const queryPath = targetPath || currentFilePath;
+
+    // 1. Try to find the exact file match
+    let match = queryPath
+      ? files.find((f: any) => f.relPath === queryPath || f.absPath === queryPath)
+      : undefined;
+
+    // 2. If single-file workspace with an active session, fallback to that file
+    if (!match && !queryPath && files.length === 1 && files[0].sessionKey) {
+      match = files[0];
+    }
+
+    if (match && match.sessionKey && match.sessionKey !== sessionKey) {
+      sessionKey = match.sessionKey;
+      if (match.relPath) {
+        currentFilePath = match.relPath;
+      }
+      window.history.replaceState(null, "", `/session/${sessionKey}`);
+      setupEventStream();
+      loadDocument(currentFilePath, true);
+      showToast("⚡ Reconnected to active session");
+      return true;
+    }
+  } catch (err) {
+    console.debug("Session auto-recovery failed", err);
+  } finally {
+    isRecovering = false;
+  }
+  return false;
 }
 
 function updatePresence(presence: string) {
@@ -1128,13 +1192,27 @@ function jumpAndHighlightLine(startLine?: number, endLine?: number) {
 }
 
 async function sendPrompts(shouldEndSession = false) {
+  const composerInput = document.getElementById("zen-composer-input") as HTMLTextAreaElement | null;
+  if (composerInput && composerInput.value.trim()) {
+    const text = composerInput.value.trim();
+    queuedPrompts.push({
+      id: `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      tag: PromptTag.Chat,
+      text,
+      createdAt: new Date().toISOString(),
+      status: PromptItemStatus.Pending,
+    });
+    composerInput.value = "";
+    renderQueue();
+  }
+
   if (queuedPrompts.length === 0 && !shouldEndSession) {
     showToast("No feedback items queued.");
     return;
   }
 
   try {
-    const res = await fetch(`/api/${sessionKey}/prompts`, {
+    let res = await fetch(`/api/${sessionKey}/prompts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1142,6 +1220,20 @@ async function sendPrompts(shouldEndSession = false) {
         endSession: shouldEndSession,
       }),
     });
+
+    if (res.status === 404) {
+      const recovered = await autoRecoverSession(currentFilePath);
+      if (recovered) {
+        res = await fetch(`/api/${sessionKey}/prompts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompts: queuedPrompts,
+            endSession: shouldEndSession,
+          }),
+        });
+      }
+    }
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const resData = await res.json();
@@ -1272,11 +1364,21 @@ function setupUiListeners() {
   // Approve Plan Button
   document.getElementById("zen-approve-btn")?.addEventListener("click", async () => {
     try {
-      const res = await fetch(`/api/${sessionKey}/approve`, {
+      let res = await fetch(`/api/${sessionKey}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes: "Explicitly approved from ZenSpec UI" }),
       });
+      if (res.status === 404) {
+        const recovered = await autoRecoverSession(currentFilePath);
+        if (recovered) {
+          res = await fetch(`/api/${sessionKey}/approve`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ notes: "Explicitly approved from ZenSpec UI" }),
+          });
+        }
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       updateApprovalState(true, data.approvedAt);

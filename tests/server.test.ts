@@ -107,10 +107,14 @@ describe("ZenServer HTTP & API Endpoints", () => {
     expect(doc.activeProgress?.step).toBe("Refactoring database migrations");
   });
 
-  it("serves workspace documents via GET /api/:key/workspace", async () => {
-    const data: any = await fetchJson(`http://127.0.0.1:${port}/api/${testKey}/workspace`);
-    expect(data.workspaceRoot).toBeDefined();
-    expect(Array.isArray(data.files)).toBe(true);
+  it("serves workspace documents via GET /api/:key/workspace and GET /api/workspace", async () => {
+    const dataKey: any = await fetchJson(`http://127.0.0.1:${port}/api/${testKey}/workspace`);
+    expect(dataKey.workspaceRoot).toBeDefined();
+    expect(Array.isArray(dataKey.files)).toBe(true);
+
+    const dataGlobal: any = await fetchJson(`http://127.0.0.1:${port}/api/workspace`);
+    expect(dataGlobal.workspaceRoot).toBeDefined();
+    expect(Array.isArray(dataGlobal.files)).toBe(true);
   });
 
   it("generates Architecture Decision Records via GET /api/:key/adr", async () => {
