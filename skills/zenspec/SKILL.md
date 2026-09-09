@@ -1,11 +1,11 @@
 ---
 name: zenspec
-description: Create reviewable Markdown documentation (plans, RFCs, specs) or HTML UI mocks with real-time interactive browser annotation using the zenspec CLI.
+description: Use whenever creating, proposing, or reviewing implementation plans, architectural designs, technical RFCs, specifications, or HTML UI mockups. Launches the interactive ZenSpec browser reviewer to collect line-level feedback and plan approval before coding.
 license: MIT
 metadata:
   author: egand
-  argument-hint: <what the plan or document should specify>
-  hermes-tags: markdown, html, review, artifacts, visualization, spec, axi
+  argument-hint: <what the plan, RFC, or UI mock should specify>
+  hermes-tags: plan, implementation-plan, architecture, rfc, spec, review, markdown, html, approval, feedback
   hermes-category: productivity
 ---
 
@@ -19,8 +19,8 @@ ZenSpec opens Markdown or HTML documents in a browser for interactive line-level
    - Write the document directly to the project's documentation directory: `docs/plans/<topic>.md`.
    - Format with standard GitHub-flavored Markdown, YAML frontmatter, KaTeX math (`$...$`), Mermaid diagrams (` ```mermaid `), or interactive question callouts (`> [!QUESTION]`, `> [!QUESTION:MULTI]`, `> [!QUESTION:RATING]`).
 
-2. **Open the Review Session & Wait for Feedback (Default Auto-Polling)**:
-   - Run `zenspec <file>` directly. It opens the browser AND automatically waits/polls for human reviewer feedback or plan approval:
+2. **Open the Review Session & Wait for Feedback (Mandatory Polling)**:
+   - Run `zenspec <file>` directly. It opens the browser AND automatically waits/polls for human reviewer feedback or plan approval. When feedback or approval arrives, it outputs the JSON payload to stdout and exits with code 0:
      ```bash
      npx zenspec docs/plans/<topic>.md
      ```
@@ -28,10 +28,13 @@ ZenSpec opens Markdown or HTML documents in a browser for interactive line-level
      ```bash
      npx zenspec docs/plans/<topic>.md --share
      ```
-   - To launch in the background without blocking:
-     ```bash
-     npx zenspec docs/plans/<topic>.md --no-poll
-     ```
+
+   > [!TIP]
+   > **Agent Execution Pattern (Harness-Agnostic)**:
+   >
+   > - **Background / Async Tasks**: If your agent platform supports background command execution or async tasks, launch `zenspec` in the background and end your turn. The harness will automatically wake you up when the process finishes with the reviewer's feedback. Do NOT busy-poll or sleep in a loop.
+   > - **MCP Tools**: If your environment has ZenSpec MCP tools available, call `zen_open_review` with `{"filePath": "docs/plans/<topic>.md"}` to wait for reviewer response natively over JSON-RPC.
+   > - **Synchronous Shells**: If your platform only runs synchronous CLI commands, allow `zenspec` to wait for the human reviewer without aborting or timing out early.
 
 3. **Multi-Document Workspace Review**:
    - Review all documents in a folder or repository inside a single browser instance:
@@ -46,10 +49,10 @@ ZenSpec opens Markdown or HTML documents in a browser for interactive line-level
    npx zenspec progress docs/plans/<topic>.md --step "Running test suite" --status running
    ```
 
-5. **Wait for Human Feedback & Plan Approval (If started in background)**:
+5. **Continue Polling After Modifying Specification**:
 
    ```bash
-   npx zenspec poll docs/plans/<topic>.md
+   npx zenspec poll docs/plans/<topic>.md --agent-reply "Updated based on feedback"
    ```
 
 6. **Iterate on Specification (Live Hot Reload & Gated Implementation)**:

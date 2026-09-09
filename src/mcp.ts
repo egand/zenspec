@@ -63,18 +63,13 @@ export function createMcpServer(store = new SessionStore()): Server {
         {
           name: McpToolName.OpenReview,
           description:
-            "Start the ZenSpec review daemon and open a Markdown or HTML document in the browser for interactive human review. By default, autoPoll is enabled (autoPoll: true), which automatically waits/polls until the human reviewer submits annotations, answers questions, or explicitly approves the plan. MANDATORY GATE: You MUST NOT start implementing features or scaffolding files until the plan is approved (approved: true).",
+            "Start the ZenSpec review daemon, open a Markdown or HTML document in the browser, and wait/long-poll for human reviewer feedback or plan approval. MANDATORY GATE: You MUST NOT start implementing features or scaffolding files until the plan is approved (approved: true).",
           inputSchema: {
             type: "object",
             properties: {
               filePath: {
                 type: "string",
                 description: "Path to the Markdown or HTML document to review.",
-              },
-              autoPoll: {
-                type: "boolean",
-                description:
-                  "Whether to wait/poll for human reviewer feedback or plan approval in this call (default: true). Set to false to detach without blocking.",
               },
               noOpen: {
                 type: "boolean",
@@ -231,100 +226,73 @@ export function createMcpServer(store = new SessionStore()): Server {
         await open(sessionUrl).catch(() => {});
       }
 
-      const shouldAutoPoll = args?.autoPoll !== false;
-
-      if (shouldAutoPoll) {
-        if (session.queuedPrompts.length > 0) {
-          const prompts = store.takeQueuedPrompts(session.key);
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
-                  session.approved
-                    ? {
-                        status: PollStatus.Approved,
-                        file: session.filePath,
-                        approved: true,
-                        approvedAt: session.approvedAt,
-                        prompts,
-                        message: "Plan has been explicitly approved by the reviewer.",
-                        sessionEnded: session.ended,
-                        endedBy: session.endedBy,
-                      }
-                    : {
-                        status: PollStatus.Feedback,
-                        file: session.filePath,
-                        prompts,
-                        approved: false,
-                        sessionEnded: session.ended,
-                        endedBy: session.endedBy,
-                      },
-                  null,
-                  2,
-                ),
-              },
-            ],
-          };
-        }
-
-        if (session.approved) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify(
-                  {
-                    status: PollStatus.Approved,
-                    file: session.filePath,
-                    approved: true,
-                    approvedAt: session.approvedAt,
-                    message:
-                      "Plan has been explicitly approved by the reviewer. You may now proceed with implementation.",
-                    sessionEnded: session.ended,
-                    endedBy: session.endedBy,
-                  },
-                  null,
-                  2,
-                ),
-              },
-            ],
-          };
-        }
-
-        const pollResult = await new Promise((resolve) => {
-          store.registerPollWaiter(session.key, (res) => resolve(res));
-        });
-
+      if (session.queuedPrompts.length > 0) {
+        const prompts = store.takeQueuedPrompts(session.key);
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(pollResult, null, 2),
+              text: JSON.stringify(
+                session.approved
+                  ? {
+                      status: PollStatus.Approved,
+                      file: session.filePath,
+                      approved: true,
+                      approvedAt: session.approvedAt,
+                      prompts,
+                      message: "Plan has been explicitly approved by the reviewer.",
+                      sessionEnded: session.ended,
+                      endedBy: session.endedBy,
+                    }
+                  : {
+                      status: PollStatus.Feedback,
+                      file: session.filePath,
+                      prompts,
+                      approved: false,
+                      sessionEnded: session.ended,
+                      endedBy: session.endedBy,
+                    },
+                null,
+                2,
+              ),
             },
           ],
         };
       }
 
+      if (session.approved) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  status: PollStatus.Approved,
+                  file: session.filePath,
+                  approved: true,
+                  approvedAt: session.approvedAt,
+                  message:
+                    "Plan has been explicitly approved by the reviewer. You may now proceed with implementation.",
+                  sessionEnded: session.ended,
+                  endedBy: session.endedBy,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      }
+
+      const pollResult = await new Promise((resolve) => {
+        store.registerPollWaiter(session.key, (res) => resolve(res));
+      });
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(
-              {
-                success: true,
-                key: session.key,
-                sessionKey: session.key,
-                url: sessionUrl,
-                file: canonical,
-                docType: session.docType,
-                approved: session.approved,
-                instruction:
-                  "MANDATORY: Call zen_poll_feedback next to wait for human review and plan approval before implementing any code.",
-              },
-              null,
-              2,
-            ),
+            text: JSON.stringify(pollResult, null, 2),
           },
         ],
       };
