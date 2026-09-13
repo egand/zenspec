@@ -19,5 +19,5 @@ describe("Tunnel & LAN Sharing", () => {
     expect(tunnel.url).toContain(String(port));
     expect(tunnel.url).toContain("token=secure-token-123");
     expect(["cloudflared", "lan"]).toContain(tunnel.type);
-  });
+  }, 10000);
 });

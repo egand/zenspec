@@ -18,6 +18,7 @@ ZenSpec opens Markdown or HTML documents in a browser for interactive line-level
 1. **Write Documentation**:
    - Write the document directly to the project's documentation directory: `docs/plans/<topic>.md`.
    - Format with standard GitHub-flavored Markdown, YAML frontmatter, KaTeX math (`$...$`), Mermaid diagrams (` ```mermaid `), or interactive question callouts (`> [!QUESTION]`, `> [!QUESTION:MULTI]`, `> [!QUESTION:RATING]`).
+   - **Mermaid Diagram Invariant**: Never use Markdown list syntax (e.g. `1. `, `2. `, `- `, `* `) inside Mermaid diagram node labels or subgraph titles. Use `[Step 1: Description]`, `[Part 1: Description]`, or `[(1) Description]` instead. Mermaid's label renderer does not support list AST nodes and will emit an `unsupported markdown: list` error.
 
 2. **Open the Review Session & Wait for Feedback (Mandatory Polling)**:
    - Run `zenspec <file>` directly. It opens the browser AND automatically waits/polls for human reviewer feedback or plan approval. When feedback or approval arrives, it outputs the JSON payload to stdout and exits with code 0:

@@ -16,17 +16,21 @@ import {
 
 describe("ZenServer HTTP & API Endpoints", () => {
   let server: ZenServer;
+  let testDir: string;
   let testFile: string;
   let testKey: string;
   let port: number;
 
   beforeAll(async () => {
-    // Create temporary markdown test file
-    testFile = path.join(os.tmpdir(), `zen-test-${Date.now()}.md`);
+    // Create temporary workspace directory
+    testDir = path.join(os.tmpdir(), `zen-server-test-${Date.now()}`);
+    fs.mkdirSync(testDir, { recursive: true });
+    testFile = path.join(testDir, "test.md");
     fs.writeFileSync(testFile, "# Test Spec\n\nParagraph for testing HTTP routes.\n", "utf8");
 
     const store = new SessionStore();
     const session = store.getOrCreateSession(testFile);
+    session.workspaceRoot = testDir;
     testKey = session.key;
 
     server = new ZenServer({ port: 0, store });
@@ -36,7 +40,9 @@ describe("ZenServer HTTP & API Endpoints", () => {
 
   afterAll(async () => {
     await server.stop();
-    if (fs.existsSync(testFile)) fs.unlinkSync(testFile);
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
   });
 
   it("responds to /health with ok status and version", async () => {

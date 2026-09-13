@@ -373,6 +373,9 @@ async function main() {
     th, td { border: 1px solid #e5e7eb; padding: 0.5rem 0.75rem; text-align: left; }
     th { background: #f9fafb; }
     blockquote { border-left: 4px solid #3b82f6; margin: 1rem 0; padding-left: 1rem; color: #4b5563; }
+    .zen-mermaid-container { border: 1px solid #e5e7eb; border-radius: 8px; margin: 1.5rem 0; overflow: hidden; background: #fafafa; }
+    .zen-diagram-toolbar { display: none; }
+    .zen-diagram-viewport { padding: 1.5rem; display: flex; justify-content: center; overflow-x: auto; }
   </style>
 </head>
 <body>

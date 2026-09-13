@@ -153,7 +153,8 @@ function protectAndRenderMath(markdownText: string): {
       html = `<div class="katex-error">$$\n${escapeHtml(expr)}\n$$</div>`;
     }
     mathReplacements.set(placeholder, html);
-    return placeholder;
+    const newlineCount = (_match.match(/\n/g) || []).length;
+    return placeholder + "\n".repeat(newlineCount);
   });
 
   // 2. Protect & Pre-render Inline Math: $ ... $ (must not be currency or whitespace-bounded)
@@ -214,6 +215,18 @@ function renderFrontmatterCard(
 }
 
 /**
+ * Sanitizes Mermaid diagram text to prevent Mermaid from choking on CommonMark list tokens in labels
+ */
+export function sanitizeMermaidDiagram(code: string): string {
+  if (!code) return "";
+  return code.replace(/(\[[^\]]*\]|\([^)]*\)|\{[^}]*\})/g, (labelBlock) => {
+    return labelBlock
+      .replace(/(["'`\n]|\\n|^)(\s*)(\d+)\.\s+/g, "$1$2($3) ")
+      .replace(/(["'`\n]|\\n|^)(\s*)[-*+]\s+/g, "$1$2• ");
+  });
+}
+
+/**
  * Compiles Markdown to HTML with source line numbers injected into DOM tags
  */
 export function renderMarkdownWithSourceLines(markdownText: string): string {
@@ -224,59 +237,73 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
     frontmatterHtml = renderFrontmatterCard(metadata, 1, frontmatterLines);
   }
 
-  const ranges = extractBlockLineRanges(body, frontmatterLines);
-  let rangeIndex = 0;
-
-  function nextRange(): LineRange | undefined {
-    return ranges[rangeIndex++];
-  }
-
-  function getAttr(range?: LineRange, extraClasses = ""): string {
-    const classes = extraClasses ? `zen-node ${extraClasses}` : "zen-node";
-    if (!range) return `class="${classes}"`;
-    return `data-line-start="${range.startLine}" data-line-end="${range.endLine}" class="${classes}"`;
-  }
-
   const { processedText, mathReplacements } = protectAndRenderMath(body);
 
   const marked = new Marked();
+  const tokens = marked.lexer(processedText);
+
+  // Assign deterministic source-line ranges directly to each top-level token
+  let currentLine = 1 + frontmatterLines;
+  for (const token of tokens) {
+    const raw = token.raw;
+    if (token.type === "space") {
+      const spaceLines = (raw.match(/\n/g) || []).length;
+      currentLine += spaceLines;
+      continue;
+    }
+
+    const trimmed = raw.replace(/\n+$/, "");
+    const innerLines = (trimmed.match(/\n/g) || []).length;
+    const startLine = currentLine;
+    const endLine = startLine + innerLines;
+
+    (token as any)._startLine = startLine;
+    (token as any)._endLine = endLine;
+
+    const totalLines = (raw.match(/\n/g) || []).length;
+    currentLine += totalLines;
+  }
+
+  function getAttr(token: any, extraClasses = ""): string {
+    const classes = extraClasses ? `zen-node ${extraClasses}` : "zen-node";
+    if (token && typeof token._startLine === "number") {
+      return `data-line-start="${token._startLine}" data-line-end="${token._endLine}" class="${classes}"`;
+    }
+    return `class="${classes}"`;
+  }
 
   marked.use({
     renderer: {
       heading(token) {
-        const range = nextRange();
         const text = this.parser.parseInline(token.tokens);
         const headingId = text
           .toLowerCase()
           .replace(/<[^>]+>/g, "")
           .replace(/[^\w\s-]/g, "")
           .replace(/\s+/g, "-");
-        return `<h${token.depth} id="${headingId}" ${getAttr(range)}>${text}</h${token.depth}>\n`;
+        return `<h${token.depth} id="${headingId}" ${getAttr(token)}>${text}</h${token.depth}>\n`;
       },
       paragraph(token) {
-        const range = nextRange();
         const text = this.parser.parseInline(token.tokens);
-        return `<p ${getAttr(range)}>${text}</p>\n`;
+        return `<p ${getAttr(token)}>${text}</p>\n`;
       },
       code(token) {
-        const range = nextRange();
         const rawLang = token.lang ? token.lang.split(/\s+/)[0] : "text";
         const language = rawLang.toLowerCase();
         const isMermaid = language === "mermaid";
         const isMarkmap = language === "markmap";
 
         if (isMermaid) {
+          const sanitizedMermaid = sanitizeMermaidDiagram(token.text);
           return `<div ${getAttr(
-            range,
+            token,
             "zen-mermaid-container",
-          )} data-type="mermaid"><pre class="mermaid">${
-            token.text
-          }</pre><button type="button" class="zen-diagram-comment-btn" data-diagram-title="Mermaid Diagram">💬 Comment on Diagram</button></div>\n`;
+          )} data-type="mermaid"><div class="zen-diagram-toolbar"><div class="zen-diagram-zoom-controls"><button type="button" class="zen-diagram-btn" data-action="zoom-out" title="Zoom Out (−)">−</button><span class="zen-diagram-zoom-badge" data-action="reset" title="Click to Reset Zoom">100%</span><button type="button" class="zen-diagram-btn" data-action="zoom-in" title="Zoom In (+)">+</button><button type="button" class="zen-diagram-btn" data-action="reset" title="Reset Zoom & Pan (⟲)">⟲</button><button type="button" class="zen-diagram-btn" data-action="fullscreen" title="Open Fullscreen Lightbox (⛶)">⛶</button></div><button type="button" class="zen-diagram-comment-btn" data-diagram-title="Mermaid Diagram">💬 Comment on Diagram</button></div><div class="zen-diagram-viewport"><div class="zen-diagram-canvas"><pre class="mermaid">${sanitizedMermaid}</pre></div></div></div>\n`;
         }
 
         if (isMarkmap) {
           return `<div ${getAttr(
-            range,
+            token,
             "zen-markmap-container",
           )} data-type="markmap"><svg class="markmap-svg"></svg><script type="text/template">${
             token.text
@@ -284,7 +311,7 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
         }
 
         const escapedCode = escapeHtml(token.text);
-        return `<div ${getAttr(range, "zen-code-block-wrapper")} data-lang="${language}">
+        return `<div ${getAttr(token, "zen-code-block-wrapper")} data-lang="${language}">
           <div class="zen-code-header">
             <span class="zen-code-lang">${language}</span>
             <button type="button" class="zen-code-copy-btn" data-code="${escapedCode}">📋 Copy</button>
@@ -293,7 +320,6 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
         </div>\n`;
       },
       blockquote(token) {
-        const range = nextRange();
         const bodyHtml = this.parser.parse(token.tokens);
 
         // Check for GFM-style [!QUESTION], [!QUESTION:MULTI], [!QUESTION:RATING], [!QUESTION:SCALE], [!QUESTION:RANK]
@@ -303,7 +329,7 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
         if (questionMatch) {
           const qMode = (questionMatch[1] || "single").toLowerCase();
           const questionTitle = questionMatch[2];
-          const questionId = `q-${range?.startLine || Math.floor(Math.random() * 1000)}`;
+          const questionId = `q-${(token as any)._startLine || Math.floor(Math.random() * 1000)}`;
           const rest = bodyHtml
             .replace(/^\s*<p[^>]*>\s*\[!QUESTION(?::([A-Za-z0-9_-]+))?\]\s*[\s\S]*?<\/p>/i, "")
             .trim();
@@ -367,7 +393,7 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
                 : "";
 
           return `<div ${getAttr(
-            range,
+            token,
             "zen-callout zen-callout-question",
           )} data-question-id="${questionId}" data-question-mode="${qMode}">
             <div class="zen-callout-title">❓ ${questionTitle} ${modeBadge}</div>
@@ -392,21 +418,20 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
             rest = `<p>${firstLineContent}</p>${rest ? `\n${rest}` : ""}`;
           }
           return `<div ${getAttr(
-            range,
+            token,
             `zen-callout zen-callout-${type}`,
           )}><div class="zen-callout-title">${
             tipMatch[1]
           }</div><div class="zen-callout-body">${rest}</div></div>\n`;
         }
 
-        return `<blockquote ${getAttr(range)}>${bodyHtml}</blockquote>\n`;
+        return `<blockquote ${getAttr(token)}>${bodyHtml}</blockquote>\n`;
       },
       list(token) {
-        const range = nextRange();
         const tag = token.ordered ? "ol" : "ul";
         const startAttr = token.ordered && token.start !== 1 ? ` start="${token.start}"` : "";
         const body = token.items.map((item) => this.listitem(item)).join("");
-        return `<${tag}${startAttr} ${getAttr(range)}>${body}</${tag}>\n`;
+        return `<${tag}${startAttr} ${getAttr(token)}>${body}</${tag}>\n`;
       },
       listitem(token) {
         if (token.task) {
@@ -418,7 +443,6 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
         return `<li>${text}</li>\n`;
       },
       table(token) {
-        const range = nextRange();
         let headerHtml = "<thead><tr>";
         for (const cell of token.header) {
           headerHtml += `<th>${this.parser.parseInline(cell.tokens)}</th>`;
@@ -436,18 +460,17 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
         bodyHtml += "</tbody>";
 
         return `<div ${getAttr(
-          range,
+          token,
           "zen-table-wrapper",
         )}><table class="zen-table">${headerHtml}${bodyHtml}</table></div>\n`;
       },
-      hr() {
-        const range = nextRange();
-        return `<hr ${getAttr(range)} />\n`;
+      hr(token) {
+        return `<hr ${getAttr(token)} />\n`;
       },
     },
   });
 
-  let html = (marked.parse(processedText) as string) || "";
+  let html = (marked.parser(tokens) as string) || "";
 
   // Restore pre-rendered KaTeX formulas
   for (const [placeholder, mathHtml] of mathReplacements.entries()) {

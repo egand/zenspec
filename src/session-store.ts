@@ -34,63 +34,85 @@ export function computeLineDiff(oldStr: string, newStr: string): DiffRange[] {
   if (!oldStr || oldStr === newStr) return [];
   const oldLines = oldStr.split(/\r?\n/);
   const newLines = newStr.split(/\r?\n/);
-  const diffs: DiffRange[] = [];
 
-  let oldIdx = 0;
-  let newIdx = 0;
+  const m = oldLines.length;
+  const n = newLines.length;
 
-  while (newIdx < newLines.length && oldIdx < oldLines.length) {
-    if (newLines[newIdx] === oldLines[oldIdx]) {
-      oldIdx++;
-      newIdx++;
-      continue;
-    }
-
-    const startLine = newIdx + 1;
-    let oldMatch = -1;
-    let newMatch = -1;
-
-    for (let di = 0; di < 30; di++) {
-      if (newIdx + di < newLines.length) {
-        const found = oldLines.indexOf(newLines[newIdx + di], oldIdx);
-        if (found !== -1) {
-          oldMatch = found;
-          newMatch = newIdx + di;
-          break;
-        }
+  const dp = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
+  for (let i = 0; i < m; i++) {
+    for (let j = 0; j < n; j++) {
+      if (oldLines[i] === newLines[j]) {
+        dp[i + 1][j + 1] = dp[i][j] + 1;
+      } else {
+        dp[i + 1][j + 1] = Math.max(dp[i + 1][j], dp[i][j + 1]);
       }
-    }
-
-    if (newMatch !== -1 && oldMatch !== -1) {
-      if (newMatch > newIdx || oldMatch > oldIdx) {
-        diffs.push({
-          startLine,
-          endLine: Math.max(startLine, newMatch),
-          type: oldMatch > oldIdx && newMatch > newIdx ? DiffType.Modified : DiffType.Added,
-          newText: newLines.slice(newIdx, newMatch).join("\n"),
-          oldText: oldLines.slice(oldIdx, oldMatch).join("\n"),
-        });
-      }
-      newIdx = newMatch;
-      oldIdx = oldMatch;
-    } else {
-      diffs.push({
-        startLine: newIdx + 1,
-        endLine: newLines.length,
-        type: DiffType.Modified,
-        newText: newLines.slice(newIdx).join("\n"),
-        oldText: oldLines.slice(oldIdx).join("\n"),
-      });
-      break;
     }
   }
 
-  if (newIdx < newLines.length) {
+  interface RawEdit {
+    type: "added" | "deleted";
+    oldLine: number;
+    newLine: number;
+  }
+  const edits: RawEdit[] = [];
+  let i = m;
+  let j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      edits.push({ type: "added", oldLine: i + 1, newLine: j });
+      j--;
+    } else {
+      edits.push({ type: "deleted", oldLine: i, newLine: j + 1 });
+      i--;
+    }
+  }
+  edits.reverse();
+
+  const diffs: DiffRange[] = [];
+  let k = 0;
+  while (k < edits.length) {
+    const cur = edits[k];
+    let startLine = cur.newLine;
+    let endLine = cur.newLine;
+    let oldStartLine = cur.oldLine;
+    let oldEndLine = cur.oldLine;
+    let hasAdded = cur.type === "added";
+    let hasDeleted = cur.type === "deleted";
+
+    k++;
+    while (k < edits.length) {
+      const next = edits[k];
+      const oldAdjacent = Math.abs(next.oldLine - oldEndLine) <= 1;
+      const newAdjacent = Math.abs(next.newLine - endLine) <= 1;
+      if (oldAdjacent || newAdjacent) {
+        if (next.type === "added") {
+          hasAdded = true;
+          startLine = Math.min(startLine, next.newLine);
+          endLine = Math.max(endLine, next.newLine);
+        } else {
+          hasDeleted = true;
+          oldStartLine = Math.min(oldStartLine, next.oldLine);
+          oldEndLine = Math.max(oldEndLine, next.oldLine);
+        }
+        k++;
+      } else {
+        break;
+      }
+    }
+
+    const type =
+      hasAdded && hasDeleted ? DiffType.Modified : hasAdded ? DiffType.Added : DiffType.Deleted;
     diffs.push({
-      startLine: newIdx + 1,
-      endLine: newLines.length,
-      type: DiffType.Added,
-      newText: newLines.slice(newIdx).join("\n"),
+      startLine,
+      endLine,
+      oldStartLine,
+      oldEndLine,
+      type,
+      newText: hasAdded ? newLines.slice(startLine - 1, endLine).join("\n") : "",
+      oldText: hasDeleted ? oldLines.slice(oldStartLine - 1, oldEndLine).join("\n") : "",
     });
   }
 
@@ -104,7 +126,8 @@ export function scanWorkspaceDocuments(
   const results: WorkspaceDocumentInfo[] = [];
   if (!fs.existsSync(dirPath)) return results;
 
-  function walk(current: string) {
+  function walk(current: string, depth = 0) {
+    if (depth > 6) return;
     let entries: fs.Dirent[] = [];
     try {
       entries = fs.readdirSync(current, { withFileTypes: true });
@@ -131,7 +154,7 @@ export function scanWorkspaceDocuments(
       }
       const full = path.join(current, ent.name);
       if (ent.isDirectory()) {
-        walk(full);
+        walk(full, depth + 1);
       } else if (ent.isFile()) {
         const ext = path.extname(ent.name).toLowerCase();
         if (ext === ".md" || ext === ".markdown" || ext === ".html" || ext === ".htm") {
@@ -280,17 +303,28 @@ export class SessionStore extends EventEmitter {
   }
 
   public getSession(key: string): SessionState | undefined {
-    return this.sessions.get(key);
+    let s = this.sessions.get(key);
+    if (!s) {
+      this.loadState();
+      s = this.sessions.get(key);
+    }
+    return s;
   }
 
   public getSessionByFile(targetFile: string): SessionState | undefined {
     const canonicalPath = fs.existsSync(targetFile)
       ? fs.realpathSync(targetFile)
       : path.resolve(targetFile);
-    return this.sessions.get(sessionKey(canonicalPath));
+    let s = this.sessions.get(sessionKey(canonicalPath));
+    if (!s) {
+      this.loadState();
+      s = this.sessions.get(sessionKey(canonicalPath));
+    }
+    return s;
   }
 
   public getAllSessions(): SessionState[] {
+    this.loadState();
     return Array.from(this.sessions.values());
   }
 
@@ -308,6 +342,10 @@ export class SessionStore extends EventEmitter {
 
     if (diffs.length > 0) {
       this.resolvePromptsWithDiff(key, diffs);
+      this.emit(`${ServerEvent.Prompts}:${key}`, {
+        queued: session.queuedPrompts,
+        history: session.promptHistory,
+      });
     }
 
     this.persistState();
@@ -442,18 +480,43 @@ export class SessionStore extends EventEmitter {
       const mdTarget = p.target?.type === TargetType.MarkdownRange ? p.target : undefined;
 
       if (mdTarget && mdTarget.startLine) {
-        // Look for overlapping or nearby diff
+        const targetOld = mdTarget.startLine;
+        const targetOldEnd = mdTarget.endLine || targetOld;
+
+        // 1. Match diff with direct overlap or proximity in old coordinates
         matchedDiff = diffs.find(
           (d) =>
-            (mdTarget.startLine <= d.endLine &&
-              (mdTarget.endLine || mdTarget.startLine) >= d.startLine) ||
-            Math.abs(d.startLine - mdTarget.startLine) <= 5,
+            d.oldStartLine !== undefined &&
+            d.oldEndLine !== undefined &&
+            ((targetOld <= d.oldEndLine && targetOldEnd >= d.oldStartLine) ||
+              Math.abs(d.oldStartLine - targetOld) <= 5),
         );
+
+        // 2. If no direct match, find diff with closest distance in old coordinates
+        if (!matchedDiff) {
+          let minDistance = Infinity;
+          for (const d of diffs) {
+            if (d.oldStartLine !== undefined) {
+              const dist = Math.abs(d.oldStartLine - targetOld);
+              if (dist < minDistance) {
+                minDistance = dist;
+                matchedDiff = d;
+              }
+            }
+          }
+        }
       }
 
       if (!matchedDiff) {
-        // Default to first diff
-        matchedDiff = diffs[0];
+        // Pick primary substantive diff (largest content change), avoiding trivial frontmatter updates
+        const nonFrontmatter = diffs.filter(
+          (d) => d.startLine > 10 || (d.newText && d.newText.length > 50),
+        );
+        const candidates = nonFrontmatter.length > 0 ? nonFrontmatter : diffs;
+        matchedDiff = candidates.reduce(
+          (best, cur) => ((cur.newText?.length || 0) > (best.newText?.length || 0) ? cur : best),
+          candidates[0],
+        );
       }
 
       p.status = "resolved";

@@ -39,7 +39,7 @@ export async function startTunnel(port: number, token?: string): Promise<TunnelI
           cf.kill();
           reject(new Error("Cloudflared timeout"));
         }
-      }, 7000);
+      }, 2500);
 
       const checkOutput = (data: Buffer) => {
         const str = data.toString();
