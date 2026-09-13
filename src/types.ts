@@ -168,6 +168,8 @@ export interface DiffRange {
   type: DiffType;
   oldText?: string;
   newText?: string;
+  oldStartLine?: number;
+  oldEndLine?: number;
 }
 
 export interface SessionState {

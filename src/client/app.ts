@@ -12,6 +12,7 @@ import {
   ServerEvent,
   ActorRole,
   ProgressStatus,
+  PromptItemStatus,
 } from "../types.js";
 
 let sessionKey = "";
@@ -31,6 +32,8 @@ let activeHighlight: {
 } | null = null;
 
 let activeEventSource: EventSource | null = null;
+let isRecovering = false;
+let recoveryTimeout: ReturnType<typeof setTimeout> | null = null;
 
 function extractSessionKey(): string {
   const pathParts = window.location.pathname.split("/").filter(Boolean);
@@ -70,7 +73,13 @@ async function loadDocument(targetRelFile?: string, isHotReload = false) {
       : `/api/${sessionKey}/document`;
 
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      if (res.status === 404) {
+        const recovered = await autoRecoverSession(targetRelFile);
+        if (recovered) return;
+      }
+      throw new Error(`HTTP ${res.status}`);
+    }
     const data = await res.json();
 
     currentFilePath = data.file;
@@ -112,9 +121,18 @@ async function loadDocument(targetRelFile?: string, isHotReload = false) {
               textColor: "#f0f6fc",
             },
           });
-          (window as any).mermaid.run({
+          const runPromise = (window as any).mermaid.run({
             nodes: container.querySelectorAll(".mermaid"),
           });
+          if (runPromise && typeof runPromise.then === "function") {
+            runPromise
+              .then(() => {
+                setupDiagramZoom(container);
+              })
+              .catch((err: any) => {
+                console.warn("Mermaid run error:", err);
+              });
+          }
         } catch (e) {
           console.warn("Mermaid render error:", e);
         }
@@ -368,9 +386,394 @@ function setupCodeCopyListeners(container: HTMLElement) {
 }
 
 // -----------------------------------------------------------------------------
-// Diagram Listeners
+// Diagram Listeners, Zoom & Lightbox
 // -----------------------------------------------------------------------------
+let lbZoom = 1.0;
+let lbPanX = 0;
+let lbPanY = 0;
+let lbIsDragging = false;
+let lbStartX = 0;
+let lbStartY = 0;
+let lbInitialPanX = 0;
+let lbInitialPanY = 0;
+
+function updateLightboxTransform(smooth = true) {
+  const canvas = document.getElementById("zen-lightbox-canvas");
+  const badge = document.getElementById("zen-lightbox-zoom-badge");
+  if (!canvas) return;
+  canvas.style.transition = smooth ? "transform 0.15s ease-out" : "none";
+  canvas.style.transform = `translate(${lbPanX}px, ${lbPanY}px) scale(${lbZoom})`;
+  if (badge) {
+    badge.textContent = `${Math.round(lbZoom * 100)}%`;
+  }
+}
+
+function getSvgDimensions(svg: SVGElement): { width: number; height: number } {
+  const viewBox = svg.getAttribute("viewBox");
+  if (viewBox) {
+    const parts = viewBox
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+      return { width: parts[2], height: parts[3] };
+    }
+  }
+  const rect = svg.getBoundingClientRect();
+  const w = svg.clientWidth || rect.width || 800;
+  const h = svg.clientHeight || rect.height || 600;
+  return { width: w, height: h };
+}
+
+function fitLightboxDiagram() {
+  const viewport = document.getElementById("zen-lightbox-viewport");
+  const canvas = document.getElementById("zen-lightbox-canvas");
+  const svg = canvas?.querySelector("svg") as SVGElement | null;
+  if (!viewport || !svg) return;
+
+  const vpRect = viewport.getBoundingClientRect();
+  const { width: naturalWidth, height: naturalHeight } = getSvgDimensions(svg);
+
+  lbPanX = 0;
+  lbPanY = 0;
+
+  const availW = Math.max(vpRect.width - 80, 200);
+  const availH = Math.max(vpRect.height - 80, 200);
+
+  const scaleW = availW / naturalWidth;
+  const scaleH = availH / naturalHeight;
+  const fitScale = Math.min(scaleW, scaleH, 2.5);
+
+  lbZoom = Math.max(Math.round(fitScale * 100) / 100, 0.25);
+  updateLightboxTransform(true);
+}
+
+function openDiagramLightbox(mermaidContainer: HTMLElement) {
+  const lightbox = document.getElementById("zen-diagram-lightbox");
+  const canvas = document.getElementById("zen-lightbox-canvas");
+  const titleEl = document.getElementById("zen-lightbox-title");
+  if (!lightbox || !canvas) return;
+
+  const sourceCanvas = mermaidContainer.querySelector(".zen-diagram-canvas");
+  const svg = sourceCanvas?.querySelector("svg");
+
+  canvas.innerHTML = "";
+  if (svg) {
+    const clone = svg.cloneNode(true) as SVGElement;
+    const { width, height } = getSvgDimensions(svg);
+    clone.setAttribute("width", `${width}px`);
+    clone.setAttribute("height", `${height}px`);
+    clone.style.width = `${width}px`;
+    clone.style.height = `${height}px`;
+    clone.style.maxWidth = "none";
+    clone.style.maxHeight = "none";
+    clone.style.display = "block";
+    canvas.appendChild(clone);
+  } else if (sourceCanvas) {
+    canvas.innerHTML = sourceCanvas.innerHTML;
+  }
+
+  // Derive title from context if possible
+  const prevHeading =
+    mermaidContainer.closest("section")?.querySelector("h1, h2, h3, h4") ||
+    mermaidContainer.previousElementSibling?.closest("h1, h2, h3, h4");
+  if (titleEl) {
+    titleEl.textContent = prevHeading
+      ? `${prevHeading.textContent} (Diagram)`
+      : "Mermaid Architecture Diagram";
+  }
+
+  lightbox.style.display = "flex";
+  document.body.style.overflow = "hidden";
+
+  requestAnimationFrame(() => {
+    fitLightboxDiagram();
+  });
+}
+
+function closeDiagramLightbox() {
+  const lightbox = document.getElementById("zen-diagram-lightbox");
+  if (!lightbox || lightbox.style.display === "none") return;
+  lightbox.style.display = "none";
+  document.body.style.overflow = "";
+}
+
+function initDiagramSizing(mContainer: HTMLElement) {
+  const viewport = mContainer.querySelector(".zen-diagram-viewport") as HTMLElement | null;
+  const canvas = mContainer.querySelector(".zen-diagram-canvas") as HTMLElement | null;
+  if (!viewport || !canvas) return;
+
+  const svg = canvas.querySelector("svg") as SVGElement | null;
+  const pre = canvas.querySelector("pre.mermaid") as HTMLElement | null;
+  if (!svg) return;
+
+  const { width: naturalWidth, height: naturalHeight } = getSvgDimensions(svg);
+  if (naturalWidth > 0 && naturalHeight > 0) {
+    if (pre) {
+      pre.style.maxWidth = "none";
+      pre.style.width = "auto";
+      pre.style.display = "flex";
+      pre.style.justifyContent = "center";
+      pre.style.alignItems = "center";
+    }
+    svg.setAttribute("width", `${naturalWidth}px`);
+    svg.setAttribute("height", `${naturalHeight}px`);
+    svg.style.width = `${naturalWidth}px`;
+    svg.style.height = `${naturalHeight}px`;
+    svg.style.maxWidth = "none";
+    svg.style.maxHeight = "none";
+    svg.style.display = "block";
+
+    const vpWidth = viewport.clientWidth || viewport.getBoundingClientRect().width || 800;
+    const availW = Math.max(vpWidth - 48, 100);
+    const fitScale = Math.min(availW / naturalWidth, 1.0);
+    const targetEl = pre || svg;
+    targetEl.style.transform = `scale(${fitScale})`;
+    targetEl.style.transformOrigin = "center center";
+  }
+}
+
+function setupDiagramZoom(container: HTMLElement) {
+  container.querySelectorAll(".zen-mermaid-container").forEach((mContainerEl: any) => {
+    const mContainer = mContainerEl as HTMLElement;
+    initDiagramSizing(mContainer);
+
+    if (mContainer.dataset.zoomInitialized === "true") return;
+    mContainer.dataset.zoomInitialized = "true";
+
+    const viewport = mContainer.querySelector(".zen-diagram-viewport") as HTMLElement;
+    const canvas = mContainer.querySelector(".zen-diagram-canvas") as HTMLElement;
+    const zoomInBtn = mContainer.querySelector('[data-action="zoom-in"]') as HTMLButtonElement;
+    const zoomOutBtn = mContainer.querySelector('[data-action="zoom-out"]') as HTMLButtonElement;
+    const resetBtns = mContainer.querySelectorAll('[data-action="reset"]');
+    const fullscreenBtn = mContainer.querySelector(
+      '[data-action="fullscreen"]',
+    ) as HTMLButtonElement;
+    const zoomBadge = mContainer.querySelector(".zen-diagram-zoom-badge") as HTMLElement;
+
+    if (!viewport || !canvas) return;
+
+    let zoom = 1.0;
+    let panX = 0;
+    let panY = 0;
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let initialPanX = 0;
+    let initialPanY = 0;
+
+    const updateTransform = (smooth = true) => {
+      canvas.style.transition = smooth ? "transform 0.15s ease-out" : "none";
+      canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+      if (zoomBadge) {
+        zoomBadge.textContent = `${Math.round(zoom * 100)}%`;
+      }
+    };
+
+    zoomInBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      zoom = Math.min(Math.round((zoom + 0.25) * 100) / 100, 5.0);
+      updateTransform(true);
+    });
+
+    zoomOutBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      zoom = Math.max(Math.round((zoom - 0.25) * 100) / 100, 0.25);
+      updateTransform(true);
+    });
+
+    resetBtns.forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        zoom = 1.0;
+        panX = 0;
+        panY = 0;
+        initDiagramSizing(mContainer);
+        updateTransform(true);
+      });
+    });
+
+    fullscreenBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openDiagramLightbox(mContainer);
+    });
+
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(() => {
+        if (zoom === 1.0 && panX === 0 && panY === 0) {
+          initDiagramSizing(mContainer);
+        }
+      });
+      ro.observe(viewport);
+    }
+
+    viewport.addEventListener("pointerdown", (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      initialPanX = panX;
+      initialPanY = panY;
+      viewport.setPointerCapture(e.pointerId);
+      viewport.classList.add("is-dragging");
+      canvas.style.transition = "none";
+    });
+
+    viewport.addEventListener("pointermove", (e: PointerEvent) => {
+      if (!isDragging) return;
+      panX = initialPanX + (e.clientX - startX);
+      panY = initialPanY + (e.clientY - startY);
+      updateTransform(false);
+    });
+
+    const stopDragging = (e: PointerEvent) => {
+      if (!isDragging) return;
+      isDragging = false;
+      if (viewport.hasPointerCapture(e.pointerId)) {
+        viewport.releasePointerCapture(e.pointerId);
+      }
+      viewport.classList.remove("is-dragging");
+      canvas.style.transition = "transform 0.15s ease-out";
+    };
+
+    viewport.addEventListener("pointerup", stopDragging);
+    viewport.addEventListener("pointercancel", stopDragging);
+
+    // Trackpad pinch or Ctrl + Mouse Wheel zoom
+    viewport.addEventListener(
+      "wheel",
+      (e: WheelEvent) => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          const delta = e.deltaY < 0 ? 0.15 : -0.15;
+          zoom = Math.min(Math.max(Math.round((zoom + delta) * 100) / 100, 0.25), 5.0);
+          updateTransform(true);
+        }
+      },
+      { passive: false },
+    );
+
+    viewport.addEventListener("dblclick", (e: MouseEvent) => {
+      e.preventDefault();
+      if (zoom !== 1.0 || panX !== 0 || panY !== 0) {
+        zoom = 1.0;
+        panX = 0;
+        panY = 0;
+        initDiagramSizing(mContainer);
+      } else {
+        zoom = 1.5;
+      }
+      updateTransform(true);
+    });
+  });
+}
+
+function setupLightboxListeners() {
+  const lightbox = document.getElementById("zen-diagram-lightbox");
+  const viewport = document.getElementById("zen-lightbox-viewport");
+  const canvas = document.getElementById("zen-lightbox-canvas");
+  const closeBtn = document.getElementById("zen-lightbox-close");
+  const zoomInBtn = document.getElementById("zen-lightbox-zoom-in");
+  const zoomOutBtn = document.getElementById("zen-lightbox-zoom-out");
+  const resetBtn = document.getElementById("zen-lightbox-reset");
+  const zoomBadge = document.getElementById("zen-lightbox-zoom-badge");
+  const fitBtn = document.getElementById("zen-lightbox-fit");
+
+  closeBtn?.addEventListener("click", closeDiagramLightbox);
+
+  lightbox?.addEventListener("click", (e) => {
+    if (e.target === lightbox) {
+      closeDiagramLightbox();
+    }
+  });
+
+  zoomInBtn?.addEventListener("click", () => {
+    lbZoom = Math.min(Math.round((lbZoom + 0.25) * 100) / 100, 6.0);
+    updateLightboxTransform(true);
+  });
+
+  zoomOutBtn?.addEventListener("click", () => {
+    lbZoom = Math.max(Math.round((lbZoom - 0.25) * 100) / 100, 0.2);
+    updateLightboxTransform(true);
+  });
+
+  resetBtn?.addEventListener("click", () => {
+    lbZoom = 1.0;
+    lbPanX = 0;
+    lbPanY = 0;
+    updateLightboxTransform(true);
+  });
+
+  zoomBadge?.addEventListener("click", () => {
+    lbZoom = 1.0;
+    lbPanX = 0;
+    lbPanY = 0;
+    updateLightboxTransform(true);
+  });
+
+  fitBtn?.addEventListener("click", () => {
+    fitLightboxDiagram();
+  });
+
+  if (viewport) {
+    viewport.addEventListener("pointerdown", (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      lbIsDragging = true;
+      lbStartX = e.clientX;
+      lbStartY = e.clientY;
+      lbInitialPanX = lbPanX;
+      lbInitialPanY = lbPanY;
+      viewport.setPointerCapture(e.pointerId);
+      viewport.classList.add("is-dragging");
+      if (canvas) canvas.style.transition = "none";
+    });
+
+    viewport.addEventListener("pointermove", (e: PointerEvent) => {
+      if (!lbIsDragging) return;
+      lbPanX = lbInitialPanX + (e.clientX - lbStartX);
+      lbPanY = lbInitialPanY + (e.clientY - lbStartY);
+      updateLightboxTransform(false);
+    });
+
+    const stopDrag = (e: PointerEvent) => {
+      if (!lbIsDragging) return;
+      lbIsDragging = false;
+      if (viewport.hasPointerCapture(e.pointerId)) {
+        viewport.releasePointerCapture(e.pointerId);
+      }
+      viewport.classList.remove("is-dragging");
+      if (canvas) canvas.style.transition = "transform 0.15s ease-out";
+    };
+
+    viewport.addEventListener("pointerup", stopDrag);
+    viewport.addEventListener("pointercancel", stopDrag);
+
+    viewport.addEventListener(
+      "wheel",
+      (e: WheelEvent) => {
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.15 : -0.15;
+        lbZoom = Math.min(Math.max(Math.round((lbZoom + delta) * 100) / 100, 0.2), 6.0);
+        updateLightboxTransform(true);
+      },
+      { passive: false },
+    );
+
+    viewport.addEventListener("dblclick", (e: MouseEvent) => {
+      e.preventDefault();
+      if (lbZoom !== 1.0 || lbPanX !== 0 || lbPanY !== 0) {
+        fitLightboxDiagram();
+      } else {
+        lbZoom = 1.5;
+        updateLightboxTransform(true);
+      }
+    });
+  }
+}
+
 function setupDiagramListeners(container: HTMLElement) {
+  setupDiagramZoom(container);
+
   container.querySelectorAll(".zen-diagram-comment-btn").forEach((btn: any) => {
     btn.addEventListener("click", (e: any) => {
       e.stopPropagation();
@@ -777,9 +1180,64 @@ function setupEventStream() {
     }
   });
 
-  es.onerror = () => {
-    // EventSource auto reconnects
+  es.onopen = () => {
+    if (recoveryTimeout) {
+      clearTimeout(recoveryTimeout);
+      recoveryTimeout = null;
+    }
   };
+
+  es.onerror = () => {
+    // Only attempt recovery if the server actively closed the connection (e.g. 404),
+    // and debounce to prevent repeated recovery attempts.
+    if (es.readyState === EventSource.CLOSED && !isRecovering) {
+      if (recoveryTimeout) clearTimeout(recoveryTimeout);
+      recoveryTimeout = setTimeout(async () => {
+        await autoRecoverSession();
+      }, 1500);
+    }
+  };
+}
+
+async function autoRecoverSession(targetPath?: string): Promise<boolean> {
+  if (isRecovering) return false;
+  isRecovering = true;
+  try {
+    const res = await fetch("/api/workspace");
+    if (!res.ok) return false;
+    const data = await res.json();
+    const files = data.files || [];
+    if (files.length === 0) return false;
+
+    const queryPath = targetPath || currentFilePath;
+
+    // 1. Try to find the exact file match
+    let match = queryPath
+      ? files.find((f: any) => f.relPath === queryPath || f.absPath === queryPath)
+      : undefined;
+
+    // 2. If single-file workspace with an active session, fallback to that file
+    if (!match && !queryPath && files.length === 1 && files[0].sessionKey) {
+      match = files[0];
+    }
+
+    if (match && match.sessionKey && match.sessionKey !== sessionKey) {
+      sessionKey = match.sessionKey;
+      if (match.relPath) {
+        currentFilePath = match.relPath;
+      }
+      window.history.replaceState(null, "", `/session/${sessionKey}`);
+      setupEventStream();
+      loadDocument(currentFilePath, true);
+      showToast("⚡ Reconnected to active session");
+      return true;
+    }
+  } catch (err) {
+    console.debug("Session auto-recovery failed", err);
+  } finally {
+    isRecovering = false;
+  }
+  return false;
 }
 
 function updatePresence(presence: string) {
@@ -1097,44 +1555,76 @@ function jumpAndHighlightLine(startLine?: number, endLine?: number) {
   const container = document.getElementById("zen-document-view");
   if (!container) return;
 
-  const targetLine = startLine || 1;
-  let targetEl = container.querySelector(`[data-line-start="${targetLine}"]`) as HTMLElement | null;
+  const targetStart = startLine || 1;
+  const targetEnd = endLine || targetStart;
 
-  if (!targetEl) {
-    // Search for closest element containing target line
-    const allLineEls = Array.from(container.querySelectorAll("[data-line-start]"));
-    for (const el of allLineEls) {
-      const sl = parseInt(el.getAttribute("data-line-start") || "0", 10);
-      const elEnd = parseInt(el.getAttribute("data-line-end") || String(sl), 10);
-      if (targetLine >= sl && targetLine <= elEnd) {
-        targetEl = el as HTMLElement;
-        break;
-      }
-    }
+  const allLineEls = Array.from(container.querySelectorAll("[data-line-start]")) as HTMLElement[];
+  if (allLineEls.length === 0) {
+    showToast(`Line ${targetStart} in document.`);
+    return;
   }
+
+  // Find all elements whose line range overlaps [targetStart, targetEnd]
+  const matchingEls = allLineEls.filter((el) => {
+    const sl = parseInt(el.getAttribute("data-line-start") || "0", 10);
+    const elEnd = parseInt(el.getAttribute("data-line-end") || String(sl), 10);
+    return sl <= targetEnd && elEnd >= targetStart;
+  });
+
+  const targetEl =
+    matchingEls[0] ||
+    allLineEls.find((el) => {
+      const sl = parseInt(el.getAttribute("data-line-start") || "0", 10);
+      return sl >= targetStart;
+    }) ||
+    allLineEls[allLineEls.length - 1];
 
   if (targetEl) {
     targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
-    targetEl.classList.remove("zen-resolved-highlight");
-    void targetEl.offsetWidth; // force DOM reflow
-    targetEl.classList.add("zen-resolved-highlight");
+
+    const elsToHighlight = matchingEls.length > 0 ? matchingEls : [targetEl];
+    for (const el of elsToHighlight) {
+      el.classList.remove("zen-resolved-highlight");
+      void el.offsetWidth; // force DOM reflow
+      el.classList.add("zen-resolved-highlight");
+    }
+
     setTimeout(() => {
-      targetEl?.classList.remove("zen-resolved-highlight");
+      for (const el of elsToHighlight) {
+        el.classList.remove("zen-resolved-highlight");
+      }
     }, 2800);
-    showToast(`📍 Highlighted modified lines ${targetLine}-${endLine || targetLine}`);
+
+    const lineText =
+      targetEnd !== targetStart ? `${targetStart}-${targetEnd}` : String(targetStart);
+    showToast(`📍 Highlighted modified lines ${lineText}`);
   } else {
-    showToast(`Line ${targetLine} in document.`);
+    showToast(`Line ${targetStart} in document.`);
   }
 }
 
 async function sendPrompts(shouldEndSession = false) {
+  const composerInput = document.getElementById("zen-composer-input") as HTMLTextAreaElement | null;
+  if (composerInput && composerInput.value.trim()) {
+    const text = composerInput.value.trim();
+    queuedPrompts.push({
+      id: `prompt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      tag: PromptTag.Chat,
+      text,
+      createdAt: new Date().toISOString(),
+      status: PromptItemStatus.Pending,
+    });
+    composerInput.value = "";
+    renderQueue();
+  }
+
   if (queuedPrompts.length === 0 && !shouldEndSession) {
     showToast("No feedback items queued.");
     return;
   }
 
   try {
-    const res = await fetch(`/api/${sessionKey}/prompts`, {
+    let res = await fetch(`/api/${sessionKey}/prompts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1142,6 +1632,20 @@ async function sendPrompts(shouldEndSession = false) {
         endSession: shouldEndSession,
       }),
     });
+
+    if (res.status === 404) {
+      const recovered = await autoRecoverSession(currentFilePath);
+      if (recovered) {
+        res = await fetch(`/api/${sessionKey}/prompts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompts: queuedPrompts,
+            endSession: shouldEndSession,
+          }),
+        });
+      }
+    }
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const resData = await res.json();
@@ -1272,11 +1776,21 @@ function setupUiListeners() {
   // Approve Plan Button
   document.getElementById("zen-approve-btn")?.addEventListener("click", async () => {
     try {
-      const res = await fetch(`/api/${sessionKey}/approve`, {
+      let res = await fetch(`/api/${sessionKey}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes: "Explicitly approved from ZenSpec UI" }),
       });
+      if (res.status === 404) {
+        const recovered = await autoRecoverSession(currentFilePath);
+        if (recovered) {
+          res = await fetch(`/api/${sessionKey}/approve`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ notes: "Explicitly approved from ZenSpec UI" }),
+          });
+        }
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       updateApprovalState(true, data.approvedAt);
@@ -1370,6 +1884,9 @@ function setupUiListeners() {
   document.getElementById("zen-close-shortcuts")?.addEventListener("click", () => {
     if (shortcutsModal) shortcutsModal.style.display = "none";
   });
+
+  // Diagram Fullscreen Lightbox Modal
+  setupLightboxListeners();
 
   // Copy as Prompt
   document.getElementById("zen-copy-prompt-btn")?.addEventListener("click", copyQueueAsPrompt);
@@ -1533,7 +2050,30 @@ function setupUiListeners() {
     if (e.key === "Escape") {
       closeAnnotationModal();
       if (shortcutsModal) shortcutsModal.style.display = "none";
+      closeDiagramLightbox();
       return;
+    }
+
+    // Lightbox zoom shortcuts
+    const lightboxEl = document.getElementById("zen-diagram-lightbox");
+    if (lightboxEl && lightboxEl.style.display === "flex") {
+      if (e.key === "+" || e.key === "=") {
+        e.preventDefault();
+        lbZoom = Math.min(Math.round((lbZoom + 0.25) * 100) / 100, 6.0);
+        updateLightboxTransform(true);
+        return;
+      }
+      if (e.key === "-" || e.key === "_") {
+        e.preventDefault();
+        lbZoom = Math.max(Math.round((lbZoom - 0.25) * 100) / 100, 0.2);
+        updateLightboxTransform(true);
+        return;
+      }
+      if (e.key === "0") {
+        e.preventDefault();
+        fitLightboxDiagram();
+        return;
+      }
     }
 
     // Submit with Cmd+Enter or Ctrl+Enter

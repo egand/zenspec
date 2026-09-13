@@ -336,7 +336,77 @@
               <kbd>b</kbd><span>Toggle right feedback sidebar</span>
             </div>
             <div class="zen-shortcut-row"><kbd>?</kbd><span>Open keyboard shortcuts</span></div>
+            <div class="zen-shortcut-row">
+              <kbd>+ / −</kbd><span>Zoom in / out on diagrams</span>
+            </div>
             <div class="zen-shortcut-row"><kbd>Esc</kbd><span>Dismiss open modals</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Diagram Fullscreen Lightbox Modal -->
+      <div
+        id="zen-diagram-lightbox"
+        class="zen-modal-overlay zen-lightbox-overlay"
+        style="display: none"
+      >
+        <div class="zen-lightbox-container">
+          <div class="zen-lightbox-header">
+            <div class="zen-lightbox-title-group">
+              <span class="zen-lightbox-icon">📊</span>
+              <span class="zen-lightbox-title" id="zen-lightbox-title">Architecture Diagram</span>
+            </div>
+            <div class="zen-lightbox-controls">
+              <button
+                type="button"
+                class="zen-diagram-btn"
+                id="zen-lightbox-zoom-out"
+                title="Zoom Out (−)"
+              >
+                −
+              </button>
+              <span
+                class="zen-diagram-zoom-badge"
+                id="zen-lightbox-zoom-badge"
+                title="Click to Reset"
+                >100%</span
+              >
+              <button
+                type="button"
+                class="zen-diagram-btn"
+                id="zen-lightbox-zoom-in"
+                title="Zoom In (+)"
+              >
+                +
+              </button>
+              <button
+                type="button"
+                class="zen-diagram-btn"
+                id="zen-lightbox-reset"
+                title="Reset Zoom & Pan (⟲)"
+              >
+                ⟲
+              </button>
+              <button
+                type="button"
+                class="zen-diagram-btn zen-lightbox-fit-btn"
+                id="zen-lightbox-fit"
+                title="Fit to Screen"
+              >
+                Fit
+              </button>
+            </div>
+            <button
+              type="button"
+              class="zen-close-sidebar-btn"
+              id="zen-lightbox-close"
+              title="Close Lightbox (Esc)"
+            >
+              ✕
+            </button>
+          </div>
+          <div class="zen-lightbox-viewport" id="zen-lightbox-viewport">
+            <div class="zen-lightbox-canvas" id="zen-lightbox-canvas"></div>
           </div>
         </div>
       </div>

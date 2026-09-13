@@ -78,7 +78,7 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
     });
     page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 900 });
-  });
+  }, 30000);
 
   afterAll(async () => {
     if (browser) await browser.close();
@@ -86,7 +86,7 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
-  });
+  }, 30000);
 
   it("loads the review session and renders Markdown, KaTeX, and Mermaid", async () => {
     const url = `http://127.0.0.1:${port}/session/${testKey}`;
@@ -113,6 +113,57 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
     // Verify Question Card rendered
     const questionCard = await page.$(".zen-callout-question");
     expect(questionCard).not.toBeNull();
+  });
+
+  it("interactively zooms, resets, and opens fullscreen lightbox for Mermaid diagrams", async () => {
+    await page.waitForSelector(".zen-mermaid-container", { timeout: 10000 });
+    await page.waitForSelector(".zen-diagram-zoom-controls", { timeout: 10000 });
+
+    // Initial zoom badge should show 100%
+    const initialBadge = await page.$eval(".zen-mermaid-container .zen-diagram-zoom-badge", (el) =>
+      el.textContent?.trim(),
+    );
+    expect(initialBadge).toBe("100%");
+
+    // Click Zoom In (+)
+    await page.click('.zen-mermaid-container [data-action="zoom-in"]');
+    const zoomedInBadge = await page.$eval(".zen-mermaid-container .zen-diagram-zoom-badge", (el) =>
+      el.textContent?.trim(),
+    );
+    expect(zoomedInBadge).toBe("125%");
+
+    // Verify canvas CSS transform has scale(1.25)
+    const canvasTransform = await page.$eval(".zen-mermaid-container .zen-diagram-canvas", (el) =>
+      el.getAttribute("style"),
+    );
+    expect(canvasTransform).toContain("scale(1.25)");
+
+    // Click Reset (⟲)
+    await page.click('.zen-mermaid-container [data-action="reset"]');
+    const resetBadge = await page.$eval(".zen-mermaid-container .zen-diagram-zoom-badge", (el) =>
+      el.textContent?.trim(),
+    );
+    expect(resetBadge).toBe("100%");
+
+    // Click Fullscreen Lightbox (⛶)
+    await page.click('.zen-mermaid-container [data-action="fullscreen"]');
+    await page.waitForSelector("#zen-diagram-lightbox", { visible: true, timeout: 5000 });
+
+    const lightboxVisible = await page.$eval(
+      "#zen-diagram-lightbox",
+      (el) => getComputedStyle(el).display,
+    );
+    expect(lightboxVisible).toBe("flex");
+
+    // Verify lightbox canvas has diagram content
+    const lightboxSvg = await page.$("#zen-lightbox-canvas");
+    expect(lightboxSvg).not.toBeNull();
+
+    // Press Escape to dismiss lightbox
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(
+      () => document.getElementById("zen-diagram-lightbox")?.style.display === "none",
+    );
   });
 
   it("displays multiple workspace documents in Left File Explorer", async () => {
@@ -268,6 +319,121 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
       return h2Elements.some((el) => el.textContent?.includes("Live Hot Reload Section"));
     });
     expect(hasNewSection).toBe(true);
+  });
+
+  it("resolves disk modification across line shifts and highlights multi-element range on jump", async () => {
+    // 1. Switch back to plan.md
+    await page.evaluate(() => {
+      const tab = document.getElementById("zen-tab-files");
+      tab?.click();
+      const card = document.querySelector('.zen-file-card[data-relpath*="plan.md"]') as HTMLElement;
+      card?.click();
+    });
+
+    await page.waitForFunction(
+      () => {
+        const h1 = document.querySelector(".zen-document-container h1");
+        return h1 && h1.textContent?.includes("Zen Architecture Plan");
+      },
+      { timeout: 10000 },
+    );
+
+    // 2. Submit annotation targeting Section 3 in plan.md
+    const session = store.getSession(testKey);
+    const targetOldLine = 20; // "## 3. Mathematical Foundations" at line 20 in original plan.md
+    const promptId = `prompt-shift-${Date.now()}`;
+    if (session) {
+      session.promptHistory.push({
+        id: promptId,
+        tag: "annotation" as any,
+        text: "Please add proof of token bounds to mathematical foundations",
+        target: {
+          type: "markdown-range" as any,
+          startLine: targetOldLine,
+          endLine: targetOldLine + 2,
+        },
+        createdAt: new Date().toISOString(),
+        status: "submitted" as any,
+      });
+    }
+
+    // 3. Update plan.md on disk with:
+    // - 10 lines inserted in Section 1 (shifting Section 3 from line 20 to line 31)
+    // - Multi-element addition in Section 3 (heading + paragraph + codeblock)
+    const currentPlan = fs.readFileSync(testFile, "utf8");
+    const insertedSection1 =
+      "\nLine A inserted\nLine B inserted\nLine C inserted\nLine D inserted\nLine E inserted\nLine F inserted\nLine G inserted\nLine H inserted\nLine I inserted\nLine J inserted\n";
+    const planWithShift = currentPlan.replace(
+      "The agent and human collaborate seamlessly.",
+      `The agent and human collaborate seamlessly.${insertedSection1}`,
+    );
+    const multiBlockAddition = `\n\n### Proof of Token Bounds\nHere is the rigorous proof of token compression bounds:\n\n\`\`\`typescript\nfunction computeBound(): number {\n  return 0.72;\n}\n\`\`\`\n`;
+    const finalUpdatedPlan = planWithShift + multiBlockAddition;
+
+    // Write to disk and record in store
+    fs.writeFileSync(testFile, finalUpdatedPlan, "utf8");
+    store.recordFileUpdate(testKey, finalUpdatedPlan);
+
+    // 4. Wait for browser to hot-reload and render the new section
+    await page.waitForFunction(
+      () => {
+        const h3Elements = Array.from(document.querySelectorAll(".zen-document-container h3"));
+        return h3Elements.some((el) => el.textContent?.includes("Proof of Token Bounds"));
+      },
+      { timeout: 10000 },
+    );
+
+    // 5. Switch to Resolved tab
+    await page.evaluate(() => {
+      const tab = document.getElementById("zen-tab-resolved");
+      tab?.click();
+    });
+
+    // Wait for the resolved card with our prompt to appear
+    await page.waitForFunction(
+      () => {
+        const cards = Array.from(document.querySelectorAll<HTMLElement>(".zen-resolved-card"));
+        return cards.some((c) => c.textContent?.includes("proof of token bounds"));
+      },
+      { timeout: 10000 },
+    );
+
+    // Verify resolved prompt was mapped accurately (shifted past line 30, not frontmatter!)
+    const resolvedPrompt = session?.promptHistory.find((p) => p.id === promptId);
+    expect(resolvedPrompt?.status).toBe("resolved");
+    expect(resolvedPrompt?.resolution?.startLine).toBeGreaterThanOrEqual(30);
+
+    // 6. Click Jump & Highlight button for this specific prompt
+    const clickResult = await page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll<HTMLElement>(".zen-resolved-card"));
+      const card = cards.find((c) => c.textContent?.includes("proof of token bounds"));
+      const btn = card?.querySelector<HTMLButtonElement>(".zen-jump-btn");
+      if (!btn) return false;
+      btn.click();
+      return true;
+    });
+    expect(clickResult).toBe(true);
+
+    // 7. Verify multi-element highlight: elements in the target range receive the glowing pulse
+    const highlightHandle = await page.waitForFunction(
+      () => {
+        const highlighted = Array.from(
+          document.querySelectorAll<HTMLElement>(".zen-resolved-highlight"),
+        );
+        if (highlighted.length === 0) return false;
+        return {
+          count: highlighted.length,
+          startLines: highlighted.map((el) =>
+            parseInt(el.getAttribute("data-line-start") || "0", 10),
+          ),
+        };
+      },
+      { timeout: 10000 },
+    );
+
+    const result = (await highlightHandle.jsonValue()) as { count: number; startLines: number[] };
+    expect(result.count).toBeGreaterThanOrEqual(1);
+    expect(Math.max(...result.startLines)).toBeGreaterThanOrEqual(30);
   });
 
   it("interactively clicks Approve Plan button and marks session approved", async () => {

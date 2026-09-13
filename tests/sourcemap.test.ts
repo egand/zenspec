@@ -3,6 +3,7 @@ import {
   extractBlockLineRanges,
   parseFrontmatter,
   renderMarkdownWithSourceLines,
+  sanitizeMermaidDiagram,
 } from "../src/sourcemap.js";
 
 describe("Markdown Source-Line Mapping & AST Renderer", () => {
@@ -183,11 +184,15 @@ This is a test paragraph.
       }
     });
 
-    it("renders Mermaid diagrams with action button", () => {
+    it("renders Mermaid diagrams with action button and zoom controls", () => {
       const md = "```mermaid\ngraph LR;\n  A-->B;\n```";
       const html = renderMarkdownWithSourceLines(md);
       expect(html).toContain("zen-mermaid-container");
       expect(html).toContain("zen-diagram-comment-btn");
+      expect(html).toContain("zen-diagram-toolbar");
+      expect(html).toContain("zen-diagram-zoom-controls");
+      expect(html).toContain("zen-diagram-viewport");
+      expect(html).toContain("zen-diagram-canvas");
       expect(html).toContain("graph LR;");
     });
 
@@ -218,6 +223,90 @@ This is a test paragraph.
       const html = renderMarkdownWithSourceLines(md);
       expect(html).toContain("zen-footnote-ref");
       expect(html).toContain("#fn-ref1");
+    });
+
+    it("preserves exact ground-truth source lines for elements appearing after nested callouts and lists", () => {
+      const md = `# Document Title (L1)
+
+> [!QUESTION] Which database should we use? (L3)
+> - [x] PostgreSQL (L4)
+> - [ ] SQLite (L5)
+
+## Section Two (L7)
+
+This is a paragraph inside section two. (L9)
+
+\`\`\`typescript
+const x = 1; // L12
+const y = 2; // L13
+\`\`\`
+
+### Section Three (L16)
+
+| Col A | Col B |
+| :--- | :--- |
+| Val 1 | Val 2 |
+
+Final conclusion paragraph. (L22)`;
+
+      const html = renderMarkdownWithSourceLines(md);
+
+      // Title: line 1
+      expect(html).toContain('data-line-start="1"');
+      expect(html).toContain("<h1");
+
+      // Question Callout: lines 3-5
+      expect(html).toContain('data-line-start="3"');
+      expect(html).toContain("zen-callout-question");
+
+      // Section Two heading: MUST be line 7, not desynchronized by inner question paragraph
+      expect(html).toContain('data-line-start="7" data-line-end="7" class="zen-node"');
+      expect(html).toContain("<h2");
+
+      // Section Two paragraph: MUST be line 9
+      expect(html).toContain('data-line-start="9" data-line-end="9" class="zen-node"');
+
+      // Code block: lines 11 to 14
+      expect(html).toContain('data-line-start="11" data-line-end="14"');
+      expect(html).toContain("zen-code-block-wrapper");
+
+      // Section Three heading: line 16
+      expect(html).toContain('data-line-start="16" data-line-end="16"');
+      expect(html).toContain("<h3");
+
+      // Table wrapper: lines 18 to 20
+      expect(html).toContain('data-line-start="18" data-line-end="20"');
+      expect(html).toContain("zen-table-wrapper");
+
+      // Final paragraph: line 22
+      expect(html).toContain('data-line-start="22" data-line-end="22"');
+    });
+
+    it("sanitizes Mermaid diagram labels with list markers to prevent 'unsupported markdown: list'", () => {
+      const diagram = `flowchart TD
+  subgraph Sourcemap["1. Deterministic AST Sourcemap"]
+    A["- Item 1\\n- Item 2"] --> B["* Bullet item"]
+    B --> C["1. Numbered item"]
+    C --> D{"1. Decision"}
+  end
+  A --> B`;
+
+      const sanitized = sanitizeMermaidDiagram(diagram);
+      expect(sanitized).not.toContain('["1. ');
+      expect(sanitized).not.toContain('["- ');
+      expect(sanitized).not.toContain('["* ');
+      expect(sanitized).toContain('subgraph Sourcemap["(1) Deterministic AST Sourcemap"]');
+      expect(sanitized).toContain('A["• Item 1\\n• Item 2"]');
+      expect(sanitized).toContain('B["• Bullet item"]');
+      expect(sanitized).toContain('C["(1) Numbered item"]');
+      expect(sanitized).toContain('D{"(1) Decision"}');
+      expect(sanitized).toContain("A --> B");
+
+      const md = "```mermaid\n" + diagram + "\n```";
+      const html = renderMarkdownWithSourceLines(md);
+      expect(html).toContain("zen-mermaid-container");
+      expect(html).toContain("(1) Deterministic AST Sourcemap");
+      expect(html).not.toContain('["1. Deterministic AST Sourcemap"]');
     });
   });
 });

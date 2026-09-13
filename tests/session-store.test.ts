@@ -249,4 +249,110 @@ describe("SessionStore & Long-Polling Coordinator", () => {
     expect(session.activeProgress?.step).toBe("Compiling TypeScript");
     expect(session.activeProgress?.status).toBe(ProgressStatus.Running);
   });
+
+  describe("resolvePromptsWithDiff & Coordinate Drift Tracking", () => {
+    it("maps prompt target across preceding line insertions accurately", () => {
+      const session = store.getOrCreateSession(`/fake/path/drift-${Date.now()}.md`);
+
+      // Initial document: 60 lines
+      const oldLines: string[] = [];
+      for (let i = 1; i <= 60; i++) {
+        oldLines.push(`Original Line ${i}`);
+      }
+      session.currentContent = oldLines.join("\n");
+
+      // User submits prompt targeting old Line 50
+      const prompt: PromptItem = {
+        id: "prompt-section-50",
+        tag: PromptTag.Annotation,
+        text: "Please expand section at line 50",
+        target: {
+          type: TargetType.MarkdownRange,
+          startLine: 50,
+          endLine: 52,
+        },
+        createdAt: new Date().toISOString(),
+        status: "submitted",
+      };
+      session.promptHistory = [prompt];
+
+      // Agent edits document:
+      // 1. Inserts 20 lines at line 10 (diff A: lines 10 to 30)
+      // 2. Modifies section at old line 50 (which is now line 70 in new file!)
+      const newLines: string[] = [];
+      for (let i = 1; i <= 9; i++) newLines.push(`Original Line ${i}`);
+      for (let i = 1; i <= 20; i++) newLines.push(`Inserted Line ${i}`); // Lines 10-29
+      for (let i = 10; i <= 49; i++) newLines.push(`Original Line ${i}`); // Lines 30-69
+      newLines.push("Expanded Section Line 50"); // Line 70
+      newLines.push("Expanded Section Line 51"); // Line 71
+      newLines.push("Expanded Section Line 52"); // Line 72
+      for (let i = 53; i <= 60; i++) newLines.push(`Original Line ${i}`); // Lines 73-80
+
+      const diffs = store.recordFileUpdate(session.key, newLines.join("\n"));
+      expect(diffs.length).toBeGreaterThanOrEqual(2);
+
+      // Verify prompt resolution:
+      // Must link to lines ~70-72 in the new file, NOT the insertion at line 10!
+      const resolved = session.promptHistory.find((p) => p.id === "prompt-section-50");
+      expect(resolved?.status).toBe("resolved");
+      expect(resolved?.resolution).toBeDefined();
+      expect(resolved?.resolution?.startLine).toBeGreaterThanOrEqual(68);
+      expect(resolved?.resolution?.startLine).toBeLessThanOrEqual(72);
+      expect(resolved?.resolution?.diffSummary).toContain("Expanded Section");
+    });
+
+    it("prioritizes substantive content diff over frontmatter edit for chat prompts without target lines", () => {
+      const session = store.getOrCreateSession(`/fake/path/frontmatter-${Date.now()}.md`);
+
+      const oldContent = `---
+title: Initial Title
+version: 1.0.0
+---
+
+# Section 1
+Content here.
+
+# Section 2
+Needs substantial architecture update.`;
+
+      session.currentContent = oldContent;
+
+      const chatPrompt: PromptItem = {
+        id: "prompt-chat-global",
+        tag: PromptTag.Chat,
+        text: "Add details about the security architecture",
+        createdAt: new Date().toISOString(),
+        status: "submitted",
+      };
+      session.promptHistory = [chatPrompt];
+
+      // Agent edits frontmatter (line 3 version bump) AND adds 15 lines of security architecture in Section 2
+      const newContent = `---
+title: Initial Title
+version: 1.0.1
+---
+
+# Section 1
+Content here.
+
+# Section 2
+Needs substantial architecture update.
+
+### Security Architecture
+- Implement OAuth2 Bearer token authentication
+- Require PKCE for public clients
+- Sign all state cookies with HMAC-SHA256
+- Enforce Content-Security-Policy headers`;
+
+      store.recordFileUpdate(session.key, newContent);
+
+      const resolved = session.promptHistory.find((p) => p.id === "prompt-chat-global");
+      expect(resolved?.status).toBe("resolved");
+      expect(resolved?.resolution).toBeDefined();
+
+      // Must link to the substantive body section (lines > 10), NOT the line 3 version bump!
+      expect(resolved?.resolution?.startLine).toBeGreaterThan(8);
+      expect(resolved?.resolution?.diffSummary).toContain("Security Architecture");
+    });
+  });
 });
