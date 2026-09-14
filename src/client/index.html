@@ -66,6 +66,16 @@
             ⌨️
           </button>
 
+          <!-- Focus Mode Toggle Button -->
+          <button
+            type="button"
+            class="zen-icon-btn"
+            id="zen-focus-toggle"
+            title="Toggle Focus Reading Mode (z)"
+          >
+            📖
+          </button>
+
           <!-- Theme Toggle Button -->
           <button type="button" class="zen-icon-btn" id="zen-theme-toggle" title="Toggle Theme (t)">
             🌓
@@ -85,6 +95,9 @@
           <button type="button" class="zen-btn-sm" id="zen-end-btn">End Session</button>
         </div>
       </header>
+
+      <!-- Reading Progress Indicator -->
+      <div id="zen-reading-progress" class="zen-reading-progress" style="width: 0%"></div>
 
       <!-- Main Workspace Area -->
       <div class="zen-workspace">
@@ -333,6 +346,9 @@
             </div>
             <div class="zen-shortcut-row"><kbd>t</kbd><span>Toggle dark / light theme</span></div>
             <div class="zen-shortcut-row">
+              <kbd>z</kbd><span>Toggle Zen Focus reading mode</span>
+            </div>
+            <div class="zen-shortcut-row">
               <kbd>b</kbd><span>Toggle right feedback sidebar</span>
             </div>
             <div class="zen-shortcut-row"><kbd>?</kbd><span>Open keyboard shortcuts</span></div>
@@ -410,6 +426,17 @@
           </div>
         </div>
       </div>
+
+      <!-- Focus Mode Floating Exit Pill -->
+      <button
+        type="button"
+        class="zen-focus-exit-pill"
+        id="zen-focus-exit-pill"
+        style="display: none"
+        title="Exit Focus Mode (z)"
+      >
+        📖 Focus Mode &nbsp;·&nbsp; Press <kbd>z</kbd> or click to exit
+      </button>
 
       <!-- Toast Notification -->
       <div id="zen-toast" class="zen-toast"></div>

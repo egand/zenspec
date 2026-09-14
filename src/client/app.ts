@@ -944,26 +944,97 @@ function generateTableOfContents(container: HTMLElement) {
     });
   });
 
-  // Scroll spy on canvas
+  // Setup dynamic ScrollSpy and Reading Progress on canvas
+  setupScrollSpyAndProgress(headings, tocList);
+}
+
+let activeScrollSpyCleanup: (() => void) | null = null;
+
+function setupScrollSpyAndProgress(headings: Element[], tocList: HTMLElement) {
+  if (activeScrollSpyCleanup) {
+    activeScrollSpyCleanup();
+    activeScrollSpyCleanup = null;
+  }
+
   const canvas = document.getElementById("zen-canvas");
-  if (canvas) {
-    canvas.addEventListener("scroll", () => {
-      const scrollPos = canvas.scrollTop + 80;
-      let activeId = "";
-      for (const h of headings) {
-        const top = (h as HTMLElement).offsetTop;
-        if (scrollPos >= top) {
-          activeId = h.id;
+  const progressBar = document.getElementById("zen-reading-progress");
+  if (!canvas) return;
+
+  let ticking = false;
+
+  const updateProgressAndSpy = () => {
+    // 1. Reading Progress Bar
+    if (progressBar) {
+      const maxScroll = canvas.scrollHeight - canvas.clientHeight;
+      const pct =
+        maxScroll > 0 ? Math.min(100, Math.max(0, (canvas.scrollTop / maxScroll) * 100)) : 0;
+      progressBar.style.width = `${pct}%`;
+    }
+
+    // 2. ScrollSpy Heading Detection
+    if (headings.length === 0) return;
+
+    const canvasRect = canvas.getBoundingClientRect();
+    const thresholdY = canvasRect.top + 100; // 100px from top of canvas view
+
+    let currentActiveId = "";
+    for (const h of headings) {
+      const rect = h.getBoundingClientRect();
+      if (rect.top <= thresholdY) {
+        currentActiveId = h.id;
+      } else {
+        break;
+      }
+    }
+
+    if (!currentActiveId && headings.length > 0) {
+      currentActiveId = headings[0].id;
+    }
+
+    if (canvas.scrollHeight - canvas.scrollTop - canvas.clientHeight < 40) {
+      currentActiveId = headings[headings.length - 1].id;
+    }
+
+    if (currentActiveId) {
+      let activeItem: HTMLElement | null = null;
+      tocList.querySelectorAll(".zen-toc-item").forEach((link: any) => {
+        if (link.dataset.headingId === currentActiveId) {
+          link.classList.add("active");
+          activeItem = link;
+        } else {
+          link.classList.remove("active");
+        }
+      });
+
+      if (activeItem) {
+        const parent = (activeItem as HTMLElement).parentElement;
+        if (parent && parent.scrollHeight > parent.clientHeight) {
+          const itemTop = (activeItem as HTMLElement).offsetTop;
+          const itemBottom = itemTop + (activeItem as HTMLElement).offsetHeight;
+          if (itemTop < parent.scrollTop || itemBottom > parent.scrollTop + parent.clientHeight) {
+            parent.scrollTop = itemTop - parent.clientHeight / 2;
+          }
         }
       }
-      if (activeId) {
-        tocList.querySelectorAll(".zen-toc-item").forEach((l: any) => {
-          if (l.dataset.headingId === activeId) l.classList.add("active");
-          else l.classList.remove("active");
-        });
-      }
-    });
-  }
+    }
+  };
+
+  const onScroll = () => {
+    if (!ticking) {
+      requestAnimationFrame(() => {
+        updateProgressAndSpy();
+        ticking = false;
+      });
+      ticking = true;
+    }
+  };
+
+  canvas.addEventListener("scroll", onScroll, { passive: true });
+  updateProgressAndSpy();
+
+  activeScrollSpyCleanup = () => {
+    canvas.removeEventListener("scroll", onScroll);
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -1910,7 +1981,36 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
+let isFocusMode = false;
+
+function toggleFocusMode(forced?: boolean) {
+  isFocusMode = typeof forced === "boolean" ? forced : !isFocusMode;
+  const appEl = document.getElementById("zen-app");
+  const focusBtn = document.getElementById("zen-focus-toggle");
+  const exitPill = document.getElementById("zen-focus-exit-pill");
+
+  if (!appEl) return;
+
+  if (isFocusMode) {
+    appEl.classList.add("zen-focus-mode");
+    focusBtn?.classList.add("active");
+    if (exitPill) exitPill.style.display = "flex";
+    showToast("🧘 Focus Reading Mode: ON (press z to exit)");
+  } else {
+    appEl.classList.remove("zen-focus-mode");
+    focusBtn?.classList.remove("active");
+    if (exitPill) exitPill.style.display = "none";
+    showToast("Focus Reading Mode: OFF");
+  }
+}
+
 function setupUiListeners() {
+  // Focus Mode Toggle
+  document.getElementById("zen-focus-toggle")?.addEventListener("click", () => toggleFocusMode());
+  document
+    .getElementById("zen-focus-exit-pill")
+    ?.addEventListener("click", () => toggleFocusMode(false));
+
   // Theme Toggle
   const toggleTheme = () => {
     const html = document.documentElement;
@@ -2244,12 +2344,16 @@ function setupUiListeners() {
       activeEl &&
       (activeEl.tagName === "INPUT" ||
         activeEl.tagName === "TEXTAREA" ||
-        activeEl.getAttribute("contenteditable") === "true")
+        activeEl.getAttribute("contenteditable") === "true" ||
+        (activeEl as HTMLElement).isContentEditable)
     ) {
       return;
     }
 
-    if (e.key === "a" || e.key === "A") {
+    if ((e.key === "z" || e.key === "Z") && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      toggleFocusMode();
+    } else if (e.key === "a" || e.key === "A") {
       e.preventDefault();
       document.getElementById("zen-approve-btn")?.click();
     } else if (e.key === "f" || e.key === "F") {

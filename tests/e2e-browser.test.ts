@@ -511,7 +511,8 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
       card?.click();
     });
 
-    // Wait for new document content to finish loading and rendering
+    // Wait for chokidar watcher to settle and new document content to finish loading and rendering
+    await new Promise((r) => setTimeout(r, 250));
     await page.waitForFunction(
       () => {
         const h1 = document.querySelector(".zen-document-container h1");
@@ -598,5 +599,133 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
       },
       { timeout: 10000 },
     );
+  });
+
+  it("renders dynamic reading progress bar and updates on scroll", async () => {
+    // 1. Verify reading progress bar exists
+    const progressBar = await page.$("#zen-reading-progress");
+    expect(progressBar).not.toBeNull();
+
+    // 2. Ensure canvas has scrollable content and scroll down
+    await page.evaluate(() => {
+      const container = document.getElementById("zen-document-view");
+      if (container) {
+        const dummy = document.createElement("div");
+        dummy.id = "zen-scroll-dummy";
+        dummy.style.height = "2500px";
+        container.appendChild(dummy);
+      }
+      const canvas = document.getElementById("zen-canvas");
+      if (canvas) {
+        canvas.scrollTop = 500;
+        canvas.dispatchEvent(new Event("scroll"));
+      }
+    });
+
+    // 3. Wait for progress width to be greater than 0%
+    await page.waitForFunction(
+      () => {
+        const bar = document.getElementById("zen-reading-progress");
+        if (!bar) return false;
+        const width = parseFloat(bar.style.width || "0");
+        return width > 0;
+      },
+      { timeout: 5000 },
+    );
+
+    const progressWidth = await page.$eval("#zen-reading-progress", (el) =>
+      parseFloat((el as HTMLElement).style.width || "0"),
+    );
+    expect(progressWidth).toBeGreaterThan(0);
+
+    // Clean up dummy element
+    await page.evaluate(() => {
+      document.getElementById("zen-scroll-dummy")?.remove();
+    });
+  });
+
+  it("toggles Zen Focus reading mode via button and z shortcut with input safety", async () => {
+    // 1. Focus button exists in topbar
+    const focusBtn = await page.$("#zen-focus-toggle");
+    expect(focusBtn).not.toBeNull();
+
+    // 2. Click focus toggle button
+    await focusBtn?.click();
+
+    // Verify .zen-focus-mode is active on #zen-app
+    await page.waitForFunction(
+      () => {
+        const app = document.getElementById("zen-app");
+        return app?.classList.contains("zen-focus-mode");
+      },
+      { timeout: 5000 },
+    );
+
+    // Verify sidebars are hidden in focus mode
+    const isLeftHidden = await page.$eval("#zen-left-panel", (el) => {
+      const style = window.getComputedStyle(el);
+      return style.display === "none";
+    });
+    expect(isLeftHidden).toBe(true);
+
+    const isRightHidden = await page.$eval("#zen-sidebar", (el) => {
+      const style = window.getComputedStyle(el);
+      return style.display === "none";
+    });
+    expect(isRightHidden).toBe(true);
+
+    // Verify floating exit pill is visible
+    await page.waitForSelector("#zen-focus-exit-pill", { visible: true, timeout: 5000 });
+
+    // 3. Click exit pill to exit focus mode
+    await page.click("#zen-focus-exit-pill");
+
+    await page.waitForFunction(
+      () => {
+        const app = document.getElementById("zen-app");
+        return !app?.classList.contains("zen-focus-mode");
+      },
+      { timeout: 5000 },
+    );
+
+    // 4. Toggle via 'z' key on document (click on canvas first so activeElement is not an input)
+    await page.click("#zen-canvas");
+    await page.keyboard.press("z");
+    await page.waitForFunction(
+      () => {
+        const app = document.getElementById("zen-app");
+        return app?.classList.contains("zen-focus-mode");
+      },
+      { timeout: 5000 },
+    );
+
+    // Press 'z' again to toggle off
+    await page.keyboard.press("z");
+    await page.waitForFunction(
+      () => {
+        const app = document.getElementById("zen-app");
+        return !app?.classList.contains("zen-focus-mode");
+      },
+      { timeout: 5000 },
+    );
+
+    // 5. Input Safety Guard: Focus inside an input, type 'z', verify Focus Mode is NOT triggered
+    await page.evaluate(() => {
+      const tab = document.getElementById("zen-tab-files");
+      tab?.click();
+    });
+    await page.waitForSelector("#zen-files-filter", { visible: true, timeout: 5000 });
+    await page.focus("#zen-files-filter");
+    await page.keyboard.type("zen-test");
+
+    // Verify focus mode was not triggered while typing in input
+    const isFocusAfterTyping = await page.$eval("#zen-app", (el) =>
+      el.classList.contains("zen-focus-mode"),
+    );
+    expect(isFocusAfterTyping).toBe(false);
+
+    // Verify the typed value contains 'z'
+    const inputValue = await page.$eval("#zen-files-filter", (el: any) => el.value);
+    expect(inputValue).toContain("zen-test");
   });
 });

@@ -253,6 +253,13 @@ body {
   color: var(--text-primary);
 }
 
+.zen-icon-btn.active,
+.zen-icon-btn-sm.active {
+  background: var(--bg-tertiary);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
 .zen-btn-sm {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
@@ -308,6 +315,71 @@ body {
   gap: 0.75rem;
   color: var(--text-primary);
   font-size: 0.9rem;
+}
+
+/* =============================================================================
+   Reading Progress Bar & Zen Focus Reading Mode
+   ============================================================================= */
+.zen-reading-progress {
+  position: fixed;
+  top: var(--topbar-height);
+  left: 0;
+  width: 0%;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent-primary), #60a5fa);
+  z-index: 150;
+  pointer-events: none;
+  transition: width 0.06s ease-out;
+}
+
+#zen-app.zen-focus-mode .zen-left-panel,
+#zen-app.zen-focus-mode .zen-sidebar {
+  display: none !important;
+}
+
+#zen-app.zen-focus-mode .zen-canvas {
+  padding: 3rem 2rem 8rem;
+}
+
+#zen-app.zen-focus-mode .zen-document-container {
+  max-width: 900px;
+}
+
+.zen-focus-exit-pill {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  padding: 0.5rem 1.1rem;
+  border-radius: 9999px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: all 0.15s ease;
+}
+
+.zen-focus-exit-pill:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-primary);
+  transform: translateX(-50%) translateY(-1px);
+}
+
+.zen-focus-exit-pill kbd {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--accent-primary);
 }
 
 /* =============================================================================
