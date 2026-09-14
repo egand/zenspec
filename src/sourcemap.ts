@@ -328,11 +328,37 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
         );
         if (questionMatch) {
           const qMode = (questionMatch[1] || "single").toLowerCase();
-          const questionTitle = questionMatch[2];
+          let questionTitle = questionMatch[2]?.trim() || "";
           const questionId = `q-${(token as any)._startLine || Math.floor(Math.random() * 1000)}`;
-          const rest = bodyHtml
+          let rest = bodyHtml
             .replace(/^\s*<p[^>]*>\s*\[!QUESTION(?::([A-Za-z0-9_-]+))?\]\s*[\s\S]*?<\/p>/i, "")
             .trim();
+
+          let questionDesc = "";
+
+          // 1. If title was empty on [!QUESTION] line, check rest for first heading
+          if (!questionTitle) {
+            const headingMatch = rest.match(/^\s*<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i);
+            if (headingMatch) {
+              questionTitle = headingMatch[1].replace(/<[^>]+>/g, "").trim();
+              rest = rest.replace(/^\s*<h[1-6][^>]*>[\s\S]*?<\/h[1-6]>/i, "").trim();
+            }
+          }
+
+          // 2. If there is a leading paragraph before any option list, treat as question description
+          const leadParagraphMatch = rest.match(/^\s*<p[^>]*>([\s\S]*?)<\/p>/i);
+          if (leadParagraphMatch) {
+            if (!questionTitle) {
+              questionTitle = leadParagraphMatch[1].replace(/<[^>]+>/g, "").trim();
+            } else {
+              questionDesc = leadParagraphMatch[1].trim();
+            }
+            rest = rest.replace(/^\s*<p[^>]*>[\s\S]*?<\/p>/i, "").trim();
+          }
+
+          if (!questionTitle) {
+            questionTitle = "Question";
+          }
 
           const isMulti = qMode === "multi" || qMode === "checkbox";
           const isRating = qMode === "rating" || qMode === "scale";
@@ -351,16 +377,34 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
             }
             optionsHtml += `</div>`;
           } else {
-            const optionRegex =
-              /<li[^>]*>\s*<label[^>]*>\s*<input[^>]*?>\s*<span>([\s\S]*?)<\/span>\s*<\/label>\s*<\/li>/gi;
-            let match: RegExpExecArray | null;
+            // Find option list (first <ul> or <ol>)
+            const listMatch = rest.match(/<(?:ul|ol)[^>]*>([\s\S]*?)<\/(?:ul|ol)>/i);
+            if (listMatch) {
+              const liRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+              let liMatch: RegExpExecArray | null;
 
-            while ((match = optionRegex.exec(rest)) !== null) {
-              const isChecked = /\bchecked\b/i.test(match[0]);
-              const optionContent = match[1].replace(/<\/?p[^>]*>/g, "").trim();
-              const cleanValue = optionContent.replace(/<[^>]+>/g, "").trim();
+              while ((liMatch = liRegex.exec(listMatch[1])) !== null) {
+                const fullLi = liMatch[0];
+                const inner = liMatch[1];
 
-              optionsHtml += `
+                const isTaskChecked =
+                  /\bchecked\b/i.test(fullLi) || /<input[^>]*checked/i.test(inner);
+                const isRecommended =
+                  /\(Recommended\)/i.test(inner) ||
+                  /<strong>\s*\(Recommended\)/i.test(inner) ||
+                  /\(Recommended\)\s*<\/strong>/i.test(inner);
+                const isChecked = isTaskChecked || (!isMulti && isRecommended);
+
+                const optionContent = inner
+                  .replace(/<label[^>]*>/gi, "")
+                  .replace(/<\/label>/gi, "")
+                  .replace(/<input[^>]*>/gi, "")
+                  .replace(/<\/?span[^>]*>/gi, "")
+                  .replace(/<\/?p[^>]*>/gi, "")
+                  .trim();
+                const cleanValue = optionContent.replace(/<[^>]+>/g, "").trim();
+
+                optionsHtml += `
                 <div class="zen-option-card ${
                   isChecked ? "selected" : ""
                 }" data-value="${escapeHtml(cleanValue)}" data-mode="${qMode}">
@@ -369,9 +413,13 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
                   } />
                   <span class="zen-option-text">${optionContent}</span>
                 </div>`;
+              }
+
+              // Strip the matched option list from rest
+              rest = rest.replace(/<(?:ul|ol)[^>]*>[\s\S]*?<\/(?:ul|ol)>/i, "").trim();
             }
 
-            // Append custom write-in option card
+            // Always append custom write-in option card at the bottom
             optionsHtml += `
               <div class="zen-option-card zen-option-custom" data-custom="true" data-mode="${qMode}">
                 <input type="${inputType}" name="${questionId}" class="zen-option-input" />
@@ -380,10 +428,7 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
           }
 
           // Trailing decision notes or explanations in blockquote body
-          const nonListRest = rest.replace(/<ul[^>]*>[\s\S]*?<\/ul>/gi, "").trim();
-          const decisionSection = nonListRest
-            ? `<div class="zen-question-decision">${nonListRest}</div>`
-            : "";
+          const decisionSection = rest ? `<div class="zen-question-decision">${rest}</div>` : "";
 
           const modeBadge =
             qMode === "multi" || qMode === "checkbox"
@@ -392,11 +437,16 @@ export function renderMarkdownWithSourceLines(markdownText: string): string {
                 ? '<span class="zen-question-mode-badge">Rating (1-5)</span>'
                 : "";
 
+          const descHtml = questionDesc
+            ? `<div class="zen-question-desc">${questionDesc}</div>`
+            : "";
+
           return `<div ${getAttr(
             token,
             "zen-callout zen-callout-question",
           )} data-question-id="${questionId}" data-question-mode="${qMode}">
             <div class="zen-callout-title">❓ ${questionTitle} ${modeBadge}</div>
+            ${descHtml}
             <div class="zen-question-options">${optionsHtml}</div>
             ${decisionSection}
           </div>\n`;

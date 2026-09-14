@@ -18,6 +18,7 @@ import {
 let sessionKey = "";
 let currentFilePath = "";
 let queuedPrompts: PromptItem[] = [];
+let submittedPrompts: PromptItem[] = [];
 let resolvedPrompts: PromptItem[] = [];
 let workspaceFiles: any[] = [];
 let activeDiffs: DiffRange[] = [];
@@ -93,8 +94,11 @@ async function loadDocument(targetRelFile?: string, isHotReload = false) {
     // Update Approval State
     updateApprovalState(Boolean(data.approved), data.approvedAt);
 
-    // Update prompts and resolved items
+    // Update prompts, submitted, and resolved items
     queuedPrompts = data.queuedPrompts || [];
+    submittedPrompts =
+      data.submittedPrompts ||
+      (data.promptHistory || []).filter((p: any) => p.status === "submitted");
     resolvedPrompts =
       data.resolvedPrompts ||
       (data.promptHistory || []).filter((p: any) => p.status === "resolved");
@@ -278,6 +282,28 @@ function setupQuestionListeners(container: HTMLElement) {
       }
     };
 
+    const customCard = qContainer.querySelector(".zen-option-custom") as HTMLElement | null;
+    const customInput = qContainer.querySelector(
+      ".zen-option-custom-input",
+    ) as HTMLInputElement | null;
+    const customOptionInput = customCard?.querySelector(
+      'input[type="radio"], input[type="checkbox"]',
+    ) as HTMLInputElement | null;
+
+    const activateCustomInput = () => {
+      if (!isMulti) {
+        qContainer
+          .querySelectorAll(".zen-option-card:not(.zen-option-custom)")
+          .forEach((c: any) => {
+            c.classList.remove("selected");
+            const r = c.querySelector('input[type="radio"]') as HTMLInputElement;
+            if (r) r.checked = false;
+          });
+      }
+      if (customCard) customCard.classList.add("selected");
+      if (customOptionInput) customOptionInput.checked = true;
+    };
+
     qContainer.querySelectorAll(".zen-option-card:not(.zen-option-custom)").forEach((card: any) => {
       card.addEventListener("click", () => {
         const input = card.querySelector(
@@ -298,11 +324,17 @@ function setupQuestionListeners(container: HTMLElement) {
           updateMultiSelections();
           showToast(`✓ Updated multi-selection`);
         } else {
-          if (input) input.checked = true;
           qContainer.querySelectorAll(".zen-option-card").forEach((c: any) => {
             c.classList.remove("selected");
+            const r = c.querySelector('input[type="radio"]') as HTMLInputElement;
+            if (r) r.checked = false;
           });
           card.classList.add("selected");
+          if (input) input.checked = true;
+
+          // Clear custom input when switching to a curated proposal
+          if (customInput) customInput.value = "";
+          if (customOptionInput) customOptionInput.checked = false;
 
           queueOrReplacePrompt({
             id: `q-${questionId}`,
@@ -323,23 +355,39 @@ function setupQuestionListeners(container: HTMLElement) {
     });
 
     // Custom write-in option card
-    const customCard = qContainer.querySelector(".zen-option-custom") as HTMLElement;
-    const customInput = qContainer.querySelector(".zen-option-custom-input") as HTMLInputElement;
     if (customCard && customInput) {
-      customCard.addEventListener("click", () => {
-        customInput.focus();
-        if (!isMulti) {
-          qContainer.querySelectorAll(".zen-option-card").forEach((c: any) => {
-            c.classList.remove("selected");
-          });
-          customCard.classList.add("selected");
+      customCard.addEventListener("click", (e: MouseEvent) => {
+        if (e.target !== customInput) {
+          customInput.focus();
         }
+        activateCustomInput();
+      });
+
+      customInput.addEventListener("focus", () => {
+        activateCustomInput();
       });
 
       customInput.addEventListener("input", () => {
         const val = customInput.value.trim();
-        if (!val) return;
-        customCard.classList.add("selected");
+        if (!val) {
+          customCard.classList.remove("selected");
+          if (customOptionInput) customOptionInput.checked = false;
+          if (isMulti) {
+            updateMultiSelections();
+          } else {
+            const existingIdx = queuedPrompts.findIndex(
+              (p) => p.queueKey === `question-${questionId}`,
+            );
+            if (existingIdx !== -1) {
+              queuedPrompts.splice(existingIdx, 1);
+              renderQueue();
+              renderMarginPins();
+            }
+          }
+          return;
+        }
+
+        activateCustomInput();
         if (isMulti) {
           updateMultiSelections();
         } else {
@@ -358,6 +406,64 @@ function setupQuestionListeners(container: HTMLElement) {
           });
         }
       });
+    }
+
+    // Auto-queue initial pre-selected default options if not already queued or in history
+    const existingQueueItem = queuedPrompts.find((p) => p.queueKey === `question-${questionId}`);
+    const isAlreadyInHistory =
+      submittedPrompts.some((p) => p.queueKey === `question-${questionId}`) ||
+      resolvedPrompts.some((p) => p.queueKey === `question-${questionId}`);
+
+    if (!existingQueueItem && !isAlreadyInHistory) {
+      if (isMulti) {
+        const initialSelected: string[] = [];
+        qContainer
+          .querySelectorAll(".zen-option-card.selected:not(.zen-option-custom)")
+          .forEach((c: any) => {
+            const val = c.dataset.value || c.querySelector(".zen-option-text")?.textContent?.trim();
+            if (val) initialSelected.push(val);
+          });
+        if (initialSelected.length > 0) {
+          queueOrReplacePrompt({
+            id: `q-${questionId}`,
+            queueKey: `question-${questionId}`,
+            tag: PromptTag.Question,
+            text: `Answers to "${title}": ${initialSelected.join(", ")}`,
+            target: {
+              type: TargetType.MarkdownRange,
+              startLine: line,
+              endLine: line,
+              selectedText: initialSelected.join(", "),
+            },
+            createdAt: new Date().toISOString(),
+          });
+        }
+      } else {
+        const initialCard = qContainer.querySelector(
+          ".zen-option-card.selected:not(.zen-option-custom)",
+        ) as HTMLElement | null;
+        if (initialCard) {
+          const val =
+            initialCard.dataset.value ||
+            initialCard.querySelector(".zen-option-text")?.textContent?.trim() ||
+            "";
+          if (val) {
+            queueOrReplacePrompt({
+              id: `q-${questionId}`,
+              queueKey: `question-${questionId}`,
+              tag: PromptTag.Question,
+              text: `Answer to "${title}": ${val}`,
+              target: {
+                type: TargetType.MarkdownRange,
+                startLine: line,
+                endLine: line,
+                selectedText: val,
+              },
+              createdAt: new Date().toISOString(),
+            });
+          }
+        }
+      }
     }
   });
 }
@@ -1150,6 +1256,7 @@ function setupEventStream() {
       const data = JSON.parse(e.data);
       if (data.history) {
         resolvedPrompts = data.history.filter((p: any) => p.status === "resolved");
+        submittedPrompts = data.history.filter((p: any) => p.status === "submitted");
       }
       renderQueue();
       renderResolved();
@@ -1432,43 +1539,83 @@ function renderQueue() {
 
   if (countEl) countEl.textContent = String(queuedPrompts.length);
 
-  if (queuedPrompts.length === 0) {
+  if (queuedPrompts.length === 0 && submittedPrompts.length === 0) {
     listEl.innerHTML =
       '<div class="zen-empty-queue">Highlight text to comment or suggest edits, or answer interactive decision cards.</div>';
     return;
   }
 
-  listEl.innerHTML = queuedPrompts
-    .map((p, idx) => {
-      const mdTarget = p.target?.type === TargetType.MarkdownRange ? p.target : undefined;
-      const lineInfo = mdTarget?.startLine
-        ? `Lines ${mdTarget.startLine}-${mdTarget.endLine || mdTarget.startLine}`
-        : "General";
+  let html = "";
 
-      if (p.tag === PromptTag.Suggestion && mdTarget?.replacementText) {
+  // 1. Staged Feedback Section
+  if (queuedPrompts.length > 0) {
+    if (submittedPrompts.length > 0) {
+      html += `<div class="zen-queue-section-header">📝 Staged Feedback (${queuedPrompts.length})</div>`;
+    }
+    html += queuedPrompts
+      .map((p, idx) => {
+        const mdTarget = p.target?.type === TargetType.MarkdownRange ? p.target : undefined;
+        const lineInfo = mdTarget?.startLine
+          ? `Lines ${mdTarget.startLine}-${mdTarget.endLine || mdTarget.startLine}`
+          : "General";
+
+        if (p.tag === PromptTag.Suggestion && mdTarget?.replacementText) {
+          return `
+          <div class="zen-queue-card zen-queue-card-suggestion">
+            <div class="zen-queue-card-meta zen-queue-card-meta-suggestion">
+              <span>✏️ [SUGGESTION] ${lineInfo}</span>
+              <button type="button" class="zen-queue-remove-btn" data-idx="${idx}" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:0.9rem;">✕</button>
+            </div>
+            <div class="zen-suggestion-diff">
+              <div class="zen-suggestion-old">- ${escapeHtml(mdTarget.selectedText || "")}</div>
+              <div class="zen-suggestion-new">+ ${escapeHtml(mdTarget.replacementText)}</div>
+            </div>
+          </div>`;
+        }
+
         return `
-        <div class="zen-queue-card zen-queue-card-suggestion">
-          <div class="zen-queue-card-meta zen-queue-card-meta-suggestion">
-            <span>✏️ [SUGGESTION] ${lineInfo}</span>
+        <div class="zen-queue-card">
+          <div class="zen-queue-card-meta">
+            <span>[${p.tag.toUpperCase()}] ${lineInfo}</span>
             <button type="button" class="zen-queue-remove-btn" data-idx="${idx}" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:0.9rem;">✕</button>
           </div>
-          <div class="zen-suggestion-diff">
-            <div class="zen-suggestion-old">- ${escapeHtml(mdTarget.selectedText || "")}</div>
-            <div class="zen-suggestion-new">+ ${escapeHtml(mdTarget.replacementText)}</div>
+          <div class="zen-queue-card-text">${escapeHtml(p.text)}</div>
+        </div>`;
+      })
+      .join("");
+  }
+
+  // 2. In Progress with Agent Section
+  if (submittedPrompts.length > 0) {
+    html += `<div class="zen-queue-section-header zen-queue-section-inprogress">
+      <span>⚡ In Progress with Agent (${submittedPrompts.length})</span>
+      <span class="zen-pulse-indicator"><span class="zen-pulse-dot"></span> Active</span>
+    </div>`;
+
+    html += submittedPrompts
+      .map((p) => {
+        const mdTarget = p.target?.type === TargetType.MarkdownRange ? p.target : undefined;
+        const lineInfo = mdTarget?.startLine
+          ? `Lines ${mdTarget.startLine}-${mdTarget.endLine || mdTarget.startLine}`
+          : "General";
+        const timeStr = p.createdAt ? new Date(p.createdAt).toLocaleTimeString() : "";
+
+        return `
+        <div class="zen-queue-card zen-queue-card-submitted">
+          <div class="zen-queue-card-meta">
+            <span class="zen-tag-badge">⚡ [${p.tag.toUpperCase()}] ${lineInfo}</span>
+            <span class="zen-time-meta">${timeStr}</span>
+          </div>
+          <div class="zen-queue-card-text">${escapeHtml(p.text)}</div>
+          <div class="zen-submitted-status">
+            <span class="zen-pulse-dot"></span> Dispatched to agent - awaiting disk updates
           </div>
         </div>`;
-      }
+      })
+      .join("");
+  }
 
-      return `
-      <div class="zen-queue-card">
-        <div class="zen-queue-card-meta">
-          <span>[${p.tag.toUpperCase()}] ${lineInfo}</span>
-          <button type="button" class="zen-queue-remove-btn" data-idx="${idx}" style="background:none;border:none;color:var(--text-secondary);cursor:pointer;font-size:0.9rem;">✕</button>
-        </div>
-        <div class="zen-queue-card-text">${escapeHtml(p.text)}</div>
-      </div>`;
-    })
-    .join("");
+  listEl.innerHTML = html;
 
   listEl.querySelectorAll(".zen-queue-remove-btn").forEach((btn: any) => {
     btn.addEventListener("click", () => {
@@ -1652,6 +1799,14 @@ async function sendPrompts(shouldEndSession = false) {
 
     if (resData.history) {
       resolvedPrompts = resData.history.filter((p: any) => p.status === "resolved");
+      submittedPrompts = resData.history.filter((p: any) => p.status === "submitted");
+    } else {
+      const newlySubmitted = queuedPrompts.map((p) => ({
+        ...p,
+        status: PromptItemStatus.Submitted,
+        createdAt: p.createdAt || new Date().toISOString(),
+      }));
+      submittedPrompts = [...submittedPrompts, ...newlySubmitted];
     }
 
     showToast(

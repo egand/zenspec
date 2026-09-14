@@ -225,6 +225,17 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
       { timeout: 10000 },
     );
 
+    // Verify items transitioned to "In Progress with Agent" live feed
+    await page.waitForSelector(".zen-queue-card-submitted", { timeout: 10000 });
+    const submittedCards = await page.$$(".zen-queue-card-submitted");
+    expect(submittedCards.length).toBe(2);
+
+    const inProgressHeader = await page.$eval(
+      ".zen-queue-section-inprogress",
+      (el) => el.textContent,
+    );
+    expect(inProgressHeader).toContain("In Progress with Agent (2)");
+
     // Verify server session store recorded submitted items in promptHistory
     const session = store.getSession(testKey);
     expect(session).not.toBeNull();
@@ -477,5 +488,115 @@ The formula is: $$\\eta = 1 - \\frac{\\text{Tokens}_{\\text{Markdown}}}{\\text{T
     const session = store.getSession(testKey);
     expect(session?.approved).toBe(true);
     expect(session?.approvedAt).toBeDefined();
+  });
+
+  it("renders resilient multiline questions with bullet options and synchronizes custom write-in input", async () => {
+    // Write multiline question with bullet options to secondFile
+    const qContent = `# Question Showcase Document
+
+> [!QUESTION]
+> ### 1. Workforce Simulation Depth
+> Which labor model fits your vision best?
+> - **Macro Allocation (Frostpunk Style)**: Buildings have worker headcounts.
+> - **(Recommended) Micro Pawn Agents (RimWorld Style)**: Individual physical characters.
+> - **Hybrid Layered Approach**: Macro allocation for building operations.
+`;
+    fs.writeFileSync(secondFile, qContent, "utf-8");
+
+    // Switch to secondFile in browser
+    await page.evaluate(() => {
+      const tab = document.getElementById("zen-tab-files");
+      tab?.click();
+      const card = document.querySelector('.zen-file-card[data-relpath*="rfc.md"]') as HTMLElement;
+      card?.click();
+    });
+
+    // Wait for new document content to finish loading and rendering
+    await page.waitForFunction(
+      () => {
+        const h1 = document.querySelector(".zen-document-container h1");
+        return h1 && h1.textContent?.includes("Question Showcase Document");
+      },
+      { timeout: 10000 },
+    );
+
+    // Wait for heading and question callout to render
+    await page.waitForSelector(".zen-callout-question", { timeout: 10000 });
+    await page.waitForSelector(".zen-question-desc", { timeout: 10000 });
+
+    // Verify extracted title (from ### heading)
+    const titleText = await page.$eval(".zen-callout-title", (el) => el.textContent);
+    expect(titleText).toContain("1. Workforce Simulation Depth");
+
+    // Verify extracted description
+    const descText = await page.$eval(".zen-question-desc", (el) => el.textContent);
+    expect(descText).toContain("Which labor model fits your vision best?");
+
+    // Verify 4 option cards (3 bullet proposals + 1 custom write-in)
+    const cards = await page.$$(".zen-option-card");
+    expect(cards.length).toBe(4);
+
+    // Verify custom write-in card exists at the bottom
+    const customCard = await page.$(".zen-option-card.zen-option-custom");
+    expect(customCard).not.toBeNull();
+
+    // Verify (Recommended) option 2 is pre-selected and its radio is checked
+    const isSecondOptionSelected = await cards[1].evaluate((el) =>
+      el.classList.contains("selected"),
+    );
+    expect(isSecondOptionSelected).toBe(true);
+    const isSecondRadioChecked = await cards[1].$eval(
+      'input[type="radio"]',
+      (el: any) => el.checked,
+    );
+    expect(isSecondRadioChecked).toBe(true);
+
+    // Now focus and type in custom write-in option
+    await page.waitForSelector(".zen-option-custom-input", { visible: true, timeout: 10000 });
+    await page.focus(".zen-option-custom-input");
+    await page.type(".zen-option-custom-input", "Custom Agent Swarm Model");
+
+    // Verify custom card is selected and custom radio is checked
+    await page.waitForFunction(() => {
+      const custom = document.querySelector(".zen-option-custom");
+      const radio = custom?.querySelector('input[type="radio"]') as HTMLInputElement | null;
+      return custom?.classList.contains("selected") && radio?.checked;
+    });
+
+    // Verify option 2 is no longer selected and its radio is UNCHECKED (no desync!)
+    await page.waitForFunction(() => {
+      const allCards = document.querySelectorAll(".zen-option-card");
+      const radio = allCards[1]?.querySelector('input[type="radio"]') as HTMLInputElement | null;
+      return !allCards[1]?.classList.contains("selected") && !radio?.checked;
+    });
+
+    const cardStates = await page.evaluate(() => {
+      const allCards = Array.from(document.querySelectorAll(".zen-option-card"));
+      return {
+        option2Selected: allCards[1]?.classList.contains("selected"),
+        option2Checked: (allCards[1]?.querySelector('input[type="radio"]') as any)?.checked,
+        customSelected: allCards[3]?.classList.contains("selected"),
+        customChecked: (allCards[3]?.querySelector('input[type="radio"]') as any)?.checked,
+      };
+    });
+    expect(cardStates.option2Selected).toBe(false);
+    expect(cardStates.option2Checked).toBe(false);
+    expect(cardStates.customSelected).toBe(true);
+    expect(cardStates.customChecked).toBe(true);
+
+    // Switch to Pending tab to ensure queue is active
+    await page.evaluate(() => {
+      const tab = document.getElementById("zen-tab-pending");
+      tab?.click();
+    });
+
+    // Verify the custom text is queued in Pending
+    await page.waitForFunction(
+      () => {
+        const textElements = Array.from(document.querySelectorAll(".zen-queue-card-text"));
+        return textElements.some((el) => el.textContent?.includes("Custom Agent Swarm Model"));
+      },
+      { timeout: 10000 },
+    );
   });
 });

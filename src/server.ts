@@ -470,6 +470,9 @@ export class ZenServer {
           resolvedPrompts: (effectiveSession.promptHistory || []).filter(
             (p) => p.status === "resolved",
           ),
+          submittedPrompts: (effectiveSession.promptHistory || []).filter(
+            (p) => p.status === "submitted",
+          ),
           chatHistory: effectiveSession.chatHistory,
           diffs: effectiveSession.diffs || [],
         }),

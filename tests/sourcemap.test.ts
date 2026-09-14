@@ -308,5 +308,49 @@ Final conclusion paragraph. (L22)`;
       expect(html).toContain("(1) Deterministic AST Sourcemap");
       expect(html).not.toContain('["1. Deterministic AST Sourcemap"]');
     });
+
+    it("parses resilient question callouts with headings, descriptions, standard bullets, and custom write-in cards", () => {
+      const md = `> [!QUESTION]
+> ### 2. Workforce Simulation Depth
+> Which labor model fits your vision best?
+> - **(Recommended) Macro Allocation (Frostpunk Style)**: Buildings have worker headcounts.
+> - **Micro Pawn Agents (RimWorld / Timberborn Style)**: Individual physical characters.
+> - **Hybrid Layered Approach**: Macro allocation with visual pawns.
+>
+> Trailing decision context or technical rationale goes here.`;
+
+      const html = renderMarkdownWithSourceLines(md);
+
+      // Verify question callout container
+      expect(html).toContain("zen-callout zen-callout-question");
+
+      // Verify title extracted from ### heading
+      expect(html).toContain('<div class="zen-callout-title">❓ 2. Workforce Simulation Depth');
+
+      // Verify description extracted and positioned above options
+      expect(html).toContain(
+        '<div class="zen-question-desc">Which labor model fits your vision best?</div>',
+      );
+
+      // Verify all 3 options are converted into option cards (not stripped!)
+      expect(html).toContain("Macro Allocation (Frostpunk Style)");
+      expect(html).toContain("Micro Pawn Agents (RimWorld / Timberborn Style)");
+      expect(html).toContain("Hybrid Layered Approach");
+
+      // Verify (Recommended) option is marked as selected by default
+      expect(html).toContain(
+        'class="zen-option-card selected" data-value="(Recommended) Macro Allocation (Frostpunk Style): Buildings have worker headcounts."',
+      );
+      expect(html).toContain('type="radio"');
+
+      // Verify empty custom write-in option card is appended at the bottom
+      expect(html).toContain('class="zen-option-card zen-option-custom"');
+      expect(html).toContain('placeholder="Other: Type custom answer..."');
+
+      // Verify trailing notes are placed cleanly in decision section
+      expect(html).toContain(
+        '<div class="zen-question-decision"><p class="zen-node">Trailing decision context or technical rationale goes here.</p></div>',
+      );
+    });
   });
 });
