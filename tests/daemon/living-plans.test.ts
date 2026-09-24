@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { GateResponse, InboxPendingResponse, InboxResponse } from "../../src/core/api.js";
 import { ROUTES } from "../../src/core/api.js";
 import type { ZenEvent } from "../../src/core/events.js";
+import { pendingDrift, replay } from "../../src/core/reducer.js";
 import { startTestDaemon, tempRepo, type Doc } from "./helpers.js";
 
 const PLAN = ["# Plan", "", "## Steps", "", "- [ ] Build event log", "- [ ] Write daemon", ""].join(
@@ -35,6 +36,25 @@ describe("living plans", () => {
     await vi.waitFor(async () => expect(await eventsOfType(doc, "plan_drifted")).toHaveLength(1));
     const [drift] = await eventsOfType(doc, "plan_drifted");
     expect(drift).toMatchObject({ revision: 1, diffSummary: "+1 -0 lines at L7" });
+  });
+
+  it("accepts drift explicitly without changing the phase or waking the agent", async () => {
+    const { doc, api } = await approvedPlan();
+    const accept = () => api.call("POST", doc.route(ROUTES.acceptDrift));
+    expect((await accept()).status).toBe(409);
+
+    doc.write(PLAN + "- [ ] Ship it\n");
+    await vi.waitFor(async () => expect(await eventsOfType(doc, "plan_drifted")).toHaveLength(1));
+    const waiting = doc.wait(1, 300);
+
+    const reply = await accept();
+    expect(reply.status).toBe(200);
+    expect(reply.body.doc.phase).toBe("approved");
+    const state = replay((await doc.state()).events);
+    expect(pendingDrift(state)).toEqual([]);
+    expect(state.reviews).toHaveLength(1);
+    expect((await waiting).status).toBe("pending");
+    expect((await accept()).status).toBe(409);
   });
 
   it("ignores disk edits before approval (they are unpublished changes)", async () => {

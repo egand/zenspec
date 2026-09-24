@@ -15,6 +15,7 @@ import {
   attachmentPath,
   image,
   msg,
+  repliesReview,
   review,
   thread,
   typicalReview,
@@ -22,6 +23,26 @@ import {
 import type { Choice } from "../../src/core/types.js";
 
 describe("buildPayload", () => {
+  it("delivers a reply as the thread's entry with the reply as its body", () => {
+    const payload = buildPayload(repliesReview());
+    expect(payload.threads).toEqual([
+      {
+        id: "t8",
+        kind: "comment",
+        at: "L5",
+        quote: "cache invalidation via TTL only",
+        body: "Also: what happens on a cache stampede?",
+      },
+      {
+        id: "t11",
+        kind: "general",
+        body: "See the attached flow.",
+        images: [{ path: attachmentPath(image(2).id), width: 1320, height: 2248 }],
+      },
+    ]);
+    expect(payload.next).toMatch(/-r <id>/);
+  });
+
   it("emits only the §8.3 fields per thread kind", () => {
     expect(buildPayload(typicalReview())).toEqual({
       verdict: "changes_requested",

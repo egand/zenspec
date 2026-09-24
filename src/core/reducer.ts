@@ -9,7 +9,10 @@
  * - A thread transition not allowed by `nextStatus` leaves the thread untouched and
  *   appends no message (e.g. a response to a resolved thread, reopening an open one).
  * - Responses and actions on unknown thread ids, and re-opening an existing id, are skipped.
- * - Within one review, `opened` is applied first, then `reopened`, then `resolved`.
+ * - Within one review, `opened` is applied first, then `reopened`, `replies`, and `resolved`.
+ * - A reply appends a `reply` message to an unresolved thread and never changes its status;
+ *   replies to resolved or unknown threads are skipped.
+ * - `drift_accepted` marks every drift not yet accepted; it is skipped when there is none.
  * - After `session_closed`, only `revision_published` is applied, and it reopens the session.
  * - `step_checked` and `plan_drifted` before approval are skipped (§10: they only
  *   describe changes to an approved plan).
@@ -25,6 +28,7 @@
 import { EVENT_SCHEMA_VERSION } from "./events.js";
 import type {
   AgentResponded,
+  DriftAccepted,
   PlanDrifted,
   ReviewSubmitted,
   RevisionPublished,
@@ -38,6 +42,7 @@ import type {
   Phase,
   ResponseAction,
   Review,
+  Drift,
   Revision,
   Thread,
   ThreadId,
@@ -98,6 +103,8 @@ export function reduce(state: DocState | undefined, event: ZenEvent): DocState {
       return onStepChecked(current, event);
     case "plan_drifted":
       return onPlanDrifted(current, event);
+    case "drift_accepted":
+      return onDriftAccepted(current, event);
     case "session_closed":
       return onSessionClosed(current, event);
     default:
@@ -148,6 +155,7 @@ function onReview(state: DocState, e: ReviewSubmitted): DocState {
     ts: e.ts,
     opened: [],
     reopened: [],
+    replied: [],
     resolved: [],
   };
   const message = (action: Message["action"], body: string, attachments: Message["attachments"]) =>
@@ -168,6 +176,13 @@ function onReview(state: DocState, e: ReviewSubmitted): DocState {
     if (transition(threads, id, "reopen", message("reopened", body, attachments))) {
       review.reopened.push(id);
     }
+  }
+  for (const { thread: id, body, attachments } of e.replies ?? []) {
+    const thread = threads[id];
+    if (!thread || thread.status === "resolved") continue;
+    const reply = message("reply", body, attachments ?? []);
+    threads[id] = { ...thread, messages: [...thread.messages, reply] };
+    if (!review.replied.includes(id)) review.replied.push(id);
   }
   for (const id of e.resolved) {
     if (transition(threads, id, "resolve", message("resolved", "", []))) review.resolved.push(id);
@@ -208,6 +223,14 @@ function onPlanDrifted(state: DocState, e: PlanDrifted): DocState {
   return {
     ...state,
     drift: [...state.drift, { revision: e.revision, diffSummary: e.diffSummary, ts: e.ts }],
+  };
+}
+
+function onDriftAccepted(state: DocState, e: DriftAccepted): DocState {
+  if (!state.drift.some((d) => !d.acceptedAt)) return state;
+  return {
+    ...state,
+    drift: state.drift.map((d) => (d.acceptedAt ? d : { ...d, acceptedAt: e.ts })),
   };
 }
 
@@ -265,6 +288,15 @@ export function openThreads(state: DocState): Thread[] {
   return threadList(state).filter((t) => t.status === "open");
 }
 
+/**
+ * Drift the reviewer has not dealt with: not accepted and not followed by a review (§10).
+ * What the drift banner shows.
+ */
+export function pendingDrift(state: DocState): Drift[] {
+  const since = latestReview(state)?.ts ?? "";
+  return state.drift.filter((d) => !d.acceptedAt && d.ts > since);
+}
+
 export interface NewThreadEntry {
   thread: Thread;
   /** True when the thread predates these reviews and was reopened in one of them. */
@@ -272,7 +304,7 @@ export interface NewThreadEntry {
 }
 
 /**
- * Threads opened or reopened by reviews of revision `revision` or later that are
+ * Threads opened, reopened or replied to by reviews of revision `revision` or later that are
  * still open: "only what's new" for the agent payload (§8.3). Review order.
  */
 export function threadsSince(state: DocState, revision: number): NewThreadEntry[] {
@@ -281,6 +313,7 @@ export function threadsSince(state: DocState, revision: number): NewThreadEntry[
     if (review.revision < revision) continue;
     for (const id of review.opened) if (!entries.has(id)) entries.set(id, false);
     for (const id of review.reopened) if (!entries.has(id)) entries.set(id, true);
+    for (const id of review.replied) if (!entries.has(id)) entries.set(id, false);
   }
   return [...entries]
     .map(([id, reopened]) => ({ thread: state.threads[id], reopened }))

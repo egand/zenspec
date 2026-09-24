@@ -13,6 +13,24 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"))
 };
 const define = { __ZENSPEC_VERSION__: JSON.stringify(pkg.version) };
 
+/**
+ * KaTeX's stylesheet lists woff2, woff and ttf for every font. Every browser we target reads
+ * woff2, so the other formats are dropped from the CSS and never bundled.
+ */
+const katexWoff2Only: esbuild.Plugin = {
+  name: "katex-woff2-only",
+  setup(b) {
+    b.onLoad({ filter: /katex[\\/]dist[\\/]katex(\.min)?\.css$/ }, async (args) => {
+      const css = await fs.promises.readFile(args.path, "utf8");
+      const contents = css.replace(
+        /,\s*url\([^)]*\.(?:woff|ttf)\)\s*format\("(?:woff|truetype)"\)/g,
+        "",
+      );
+      return { contents, loader: "css", resolveDir: path.dirname(args.path) };
+    });
+  },
+};
+
 async function build() {
   fs.rmSync(DIST, { recursive: true, force: true });
   fs.mkdirSync(CLIENT_DIST, { recursive: true });
@@ -31,17 +49,24 @@ async function build() {
   });
   fs.chmodSync(path.join(DIST, "cli.mjs"), 0o755);
 
-  // Browser client: Preact with the automatic JSX runtime.
-  await esbuild.build({
+  // Browser client: Preact with the automatic JSX runtime. Code splitting keeps rarely used
+  // heavy libraries (Mermaid, KaTeX) out of `main.js`: they load via dynamic `import()`.
+  const client = await esbuild.build({
     entryPoints: [path.join(CLIENT_SRC, "main.tsx")],
     outdir: CLIENT_DIST,
     bundle: true,
+    splitting: true,
+    minify: true,
     platform: "browser",
     format: "esm",
     target: "es2022",
     jsx: "automatic",
     jsxImportSource: "preact",
-    loader: { ".woff2": "file", ".woff": "file", ".ttf": "file" },
+    chunkNames: "chunks/[name]-[hash]",
+    assetNames: "assets/[name]-[hash]",
+    loader: { ".woff2": "file" },
+    plugins: [katexWoff2Only],
+    metafile: true,
     define,
   });
 
@@ -51,7 +76,9 @@ async function build() {
     }
   }
 
-  console.log("Built dist/cli.mjs and dist/client/");
+  const main = client.metafile.outputs[path.relative(ROOT, path.join(CLIENT_DIST, "main.js"))];
+  const kb = main ? `, main.js ${Math.round(main.bytes / 1024)} KB` : "";
+  console.log(`Built dist/cli.mjs and dist/client/${kb}`);
 }
 
 build().catch((err) => {

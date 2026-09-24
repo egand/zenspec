@@ -1,5 +1,6 @@
 /** Typed HTTP client for the daemon routes in `core/api.ts`. The browser talks to nothing else. */
 import type {
+  AcceptDriftResponse,
   ApiError,
   DocStateResponse,
   DraftResponse,
@@ -32,6 +33,7 @@ export interface Api {
   docState(): Promise<DocStateResponse>;
   saveDraft(draft: Draft): Promise<DraftResponse>;
   submitReview(request: SubmitReviewRequest): Promise<SubmitReviewResponse>;
+  acceptDrift(): Promise<AcceptDriftResponse>;
   revisionText(n: number): Promise<string>;
   uploadAttachment(image: Blob): Promise<UploadAttachmentResponse>;
   attachmentUrl(id: AttachmentId): string;
@@ -66,6 +68,7 @@ export function createApi(doc: DocAddress, fetchImpl: typeof fetch = fetch.bind(
     docState: () => json(fetchImpl, path(ROUTES.doc)),
     saveDraft: (draft) => json(fetchImpl, path(ROUTES.draft), jsonInit("PUT", draft)),
     submitReview: (req) => json(fetchImpl, path(ROUTES.reviews), jsonInit("POST", req)),
+    acceptDrift: () => json(fetchImpl, path(ROUTES.acceptDrift), { method: "POST" }),
     revisionText: async (n) => (await request(fetchImpl, path(ROUTES.revision, { n }))).text(),
     uploadAttachment: (image) =>
       json(fetchImpl, path(ROUTES.attachments), {

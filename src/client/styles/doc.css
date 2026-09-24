@@ -67,33 +67,6 @@
   color: var(--text-muted);
 }
 
-.zen-steps-progress {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.zen-steps-bar {
-  flex: 1;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--bg-tertiary);
-  overflow: hidden;
-}
-
-.zen-steps-fill {
-  height: 100%;
-  background: var(--accent-green-hover, #2ea043);
-  transition: width 0.3s ease;
-}
-
-.zen-steps-count {
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
 .zen-toc-list {
   flex: 1;
   overflow-y: auto;
@@ -1077,9 +1050,11 @@ li.zen-step-current {
 
 .zen-pin {
   pointer-events: auto;
-  width: 22px;
+  width: 34px;
   height: 22px;
-  border-radius: 50%;
+  gap: 2px;
+  border-radius: 11px;
+  white-space: nowrap;
   border: 2px solid var(--bg-primary);
   background: var(--accent-yellow);
   color: #fff;
@@ -1089,6 +1064,11 @@ li.zen-step-current {
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.zen-pin-icon {
+  font-size: 0.8rem;
+  line-height: 1;
 }
 
 .zen-pin-suggestion {

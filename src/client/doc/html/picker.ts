@@ -3,6 +3,7 @@
  * talks to the parent only through postMessage:
  *   → parent  { zen: "pick", cssPath, tag, textQuote, rect }
  *   → parent  { zen: "thread", threadId }  (a highlighted element was clicked; Alt-click picks)
+ *   → parent  { zen: "elements", elements: [{ cssPath, tag, text }] }  (on load, for re-anchoring)
  *   ← parent  { zen: "highlights", items: [{ threadId, cssPath, status, active }] }
  * Written as a plain function and serialized, so it has no imports and no closures.
  */
@@ -99,6 +100,18 @@ function pickerMain(): void {
       if (item.active) el.setAttribute("data-zen-active", "");
     }
   });
+  // Every element, so the parent can re-anchor threads against this revision (see place.ts).
+  const ELEMENT_MAX = 5000;
+  const TEXT_MAX = 2000;
+  const elements = Array.from(document.body?.querySelectorAll("*") ?? [])
+    .filter((el) => !/^(SCRIPT|STYLE|TEMPLATE)$/.test(el.tagName))
+    .slice(0, ELEMENT_MAX)
+    .map((el) => ({
+      cssPath: cssPath(el),
+      tag: el.tagName.toLowerCase(),
+      text: (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, TEXT_MAX),
+    }));
+  parent.postMessage({ zen: "elements", elements }, "*");
   parent.postMessage({ zen: "ready" }, "*");
 }
 

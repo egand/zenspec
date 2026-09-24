@@ -6,7 +6,7 @@ import { toString } from "mdast-util-to-string";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { parseDocument } from "../../core/parse.js";
 import { Block } from "./blocks/Block.js";
-import { decorate, stepChecked } from "./blocks/decorate.js";
+import { decorate } from "./blocks/decorate.js";
 import { DocActionsContext, type DocActions } from "./context.js";
 import { loadDismissed, saveDismissed } from "./kb/terms.js";
 import { Overlay } from "./overlay/Overlay.js";
@@ -74,13 +74,8 @@ export function MarkdownView(props: DocumentViewProps) {
         entries.push({ id: block.id, text: text.trim(), depth: block.node.depth });
       }
     }
-    const done = doc.steps.filter((s) => stepChecked(s, props.steps)).length;
-    return {
-      entries,
-      minutes: Math.max(1, Math.ceil(words / WORDS_PER_MINUTE)),
-      steps: { done, total: doc.steps.length },
-    };
-  }, [doc, props.steps]);
+    return { entries, minutes: Math.max(1, Math.ceil(words / WORDS_PER_MINUTE)) };
+  }, [doc]);
 
   const body = useRef<HTMLElement>(null);
   const canvas = useRef<HTMLDivElement>(null);

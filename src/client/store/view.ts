@@ -3,6 +3,7 @@ import type { KbNote } from "../../core/api.js";
 import { diffHunks, diffLines, likelyAddressed } from "../../core/diff.js";
 import type {
   Choice,
+  HtmlAnchor,
   Draft,
   DraftThread,
   LineRange,
@@ -15,10 +16,11 @@ import type {
 
 export interface Highlight {
   threadId: string;
-  lines: [number, number];
+  lines?: [number, number];
   status: ThreadStatus;
   kind: ThreadKind;
   active?: boolean;
+  htmlAnchor?: HtmlAnchor;
 }
 
 export interface AnswerView {
@@ -33,21 +35,28 @@ function anchorLines(item: Thread | DraftThread): LineRange | undefined {
   return item.anchor.lines;
 }
 
-/** Unresolved threads and draft items with a place in the current text. */
+function htmlAnchor(item: Thread | DraftThread): HtmlAnchor | undefined {
+  return item.kind !== "general" && item.anchor.type === "html" ? item.anchor : undefined;
+}
+
+/**
+ * Unresolved threads and draft items with a place in the current text. HTML items carry their
+ * anchor instead of lines: the daemon has no DOM, so the HTML view places them itself.
+ */
 export function highlightsFor(
   threads: readonly Thread[],
   draft: Draft | null,
   activeId?: string,
 ): Highlight[] {
   const out: Highlight[] = [];
-  for (const t of threads) {
-    const lines = t.status === "resolved" ? undefined : anchorLines(t);
-    if (lines) out.push({ threadId: t.id, lines, status: t.status, kind: t.kind });
-  }
-  for (const d of draft?.threads ?? []) {
-    const lines = d.orphaned ? undefined : anchorLines(d);
-    if (lines) out.push({ threadId: d.draftId, lines, status: "open", kind: d.kind });
-  }
+  const add = (item: Thread | DraftThread, threadId: string, status: ThreadStatus) => {
+    const anchor = htmlAnchor(item);
+    if (anchor) return out.push({ threadId, status, kind: item.kind, htmlAnchor: anchor });
+    const lines = anchorLines(item);
+    if (lines) out.push({ threadId, lines, status, kind: item.kind });
+  };
+  for (const t of threads) if (t.status !== "resolved") add(t, t.id, t.status);
+  for (const d of draft?.threads ?? []) if (!d.orphaned) add(d, d.draftId, "open");
   return out.map((h) => (h.threadId === activeId ? { ...h, active: true } : h));
 }
 

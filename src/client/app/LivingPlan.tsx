@@ -34,15 +34,20 @@ export function StepProgress() {
 export function DriftBanner() {
   const { store, actions } = useApp();
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const drift = store.drift.value;
   if (!drift.length) return null;
   const last = drift.at(-1)!;
   const before = store.latestText.value;
   const hunks = before !== undefined && open ? diffHunks(before, store.content.value) : [];
 
-  const decide = (verdict: "comment" | "changes_requested", summary: string) => {
-    actions.setVerdict(verdict, summary);
-    actions.openSubmit(verdict);
+  const requestChanges = () => {
+    actions.setVerdict("changes_requested", "Please revisit the plan changes.");
+    actions.openSubmit("changes_requested");
+  };
+  const accept = () => {
+    setError(null);
+    store.acceptDrift().catch((err: Error) => setError(err.message));
   };
 
   return (
@@ -57,18 +62,16 @@ export function DriftBanner() {
         <button
           type="button"
           class="zen-btn-sm"
-          onClick={() => decide("comment", "Accepted the plan changes.")}
+          title="Acknowledge the change; the phase stays as it is"
+          onClick={accept}
         >
           Accept
         </button>
-        <button
-          type="button"
-          class="zen-btn-sm zen-btn-danger"
-          onClick={() => decide("changes_requested", "Please revisit the plan changes.")}
-        >
+        <button type="button" class="zen-btn-sm zen-btn-danger" onClick={requestChanges}>
           Request changes
         </button>
       </div>
+      {error && <p class="zen-error">{error}</p>}
       {open && (
         <pre class="zen-diff">
           {hunks.flatMap((h) =>

@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type {
+  AcceptDriftResponse,
   DraftResponse,
   GateResponse,
   HealthResponse,
@@ -116,6 +117,11 @@ export function buildRouter(d: DaemonContext): Router {
     .add("POST", ROUTES.close, async (ctx) => {
       const session = doc(ctx);
       session.close(validate.closeRequest(await readJson(ctx.req)));
+      return { doc: session.document };
+    })
+    .add("POST", ROUTES.acceptDrift, (ctx): AcceptDriftResponse => {
+      const session = doc(ctx);
+      session.acceptDrift();
       return { doc: session.document };
     })
     .add("GET", ROUTES.events, (ctx) => streamEvents(ctx, doc(ctx)))

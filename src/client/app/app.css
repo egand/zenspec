@@ -110,10 +110,20 @@ select {
   min-height: 0;
 }
 
+/* Only the document's own canvas scrolls; the pane never does. */
 .zen-doc-pane {
   flex: 1;
   min-width: 0;
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Focus mode (`z`, set by the document view on <html>): only the document and the title stay. */
+html.zen-focus-mode .zen-panel,
+html.zen-focus-mode .zen-progress,
+html.zen-focus-mode .zen-topbar > :not(.zen-brand, .zen-doc-title, .zen-presence, .zen-spacer),
+html.zen-focus-mode .zen-doc-path {
+  display: none;
 }
 
 .zen-pad {
@@ -230,6 +240,34 @@ select {
 
 .zen-chip-muted {
   opacity: 0.8;
+}
+
+.zen-presence {
+  gap: 0.4rem;
+}
+.zen-presence-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.zen-presence-waiting {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  background: transparent;
+}
+.zen-presence-waiting .zen-presence-dot {
+  animation: zen-presence-pulse 1.6s ease-in-out infinite;
+}
+.zen-presence-working {
+  color: var(--accent-green-hover, #2ea043);
+  border-color: currentColor;
+  background: transparent;
+}
+@keyframes zen-presence-pulse {
+  50% {
+    opacity: 0.25;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -637,6 +675,11 @@ select {
 }
 .zen-tag-orphaned,
 .zen-tag-resolve,
+.zen-tag-reply {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  background: transparent;
+}
 .zen-tag-reopen {
   color: var(--accent-red);
   border-color: var(--accent-red);

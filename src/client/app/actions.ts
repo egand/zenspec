@@ -90,6 +90,13 @@ export function createActions(store: DocStore, ui: Ui) {
       store.updateDraft((d) => drafts.stageReopen(d, id, body, attachments));
     },
 
+    /** Replies to an open thread, or reopens an addressed/declined/outdated one with the reply. */
+    reply(id: ThreadId, body: string, attachments: AttachmentRef[] = []) {
+      const thread = store.state.value.threads[id];
+      if (!thread || thread.status === "resolved") return;
+      store.updateDraft((d) => drafts.stageReplyTo(d, thread, body, attachments));
+    },
+
     unstage(id: ThreadId) {
       store.updateDraft((d) => drafts.unstage(d, id));
     },

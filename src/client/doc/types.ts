@@ -1,5 +1,6 @@
 import type {
   Choice,
+  HtmlAnchor,
   LineRange,
   QuestionId,
   StepId,
@@ -30,12 +31,13 @@ export type DocumentSelection = MarkdownSelection | HtmlSelection;
 
 export interface DocHighlight {
   threadId: string;
-  lines: LineRange;
+  /** Markdown: lines in the shown source. Absent for HTML mockups. */
+  lines?: LineRange;
   status: ThreadStatus;
   kind: ThreadKind;
   active?: boolean;
-  /** HTML mockups: element the thread is anchored to (best effort). */
-  cssPath?: string;
+  /** HTML mockups: the thread's anchor, re-anchored in the browser against the shown page. */
+  htmlAnchor?: HtmlAnchor;
 }
 
 export interface AnswerState {

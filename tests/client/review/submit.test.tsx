@@ -27,6 +27,7 @@ describe("submit review", () => {
       summary: "Looks good",
       opened: [],
       reopened: [],
+      replies: [],
       resolved: [],
     });
     expect(app.ui.submit.value).toBeNull();

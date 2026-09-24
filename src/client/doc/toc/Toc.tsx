@@ -1,6 +1,7 @@
 /**
- * Outline sidebar with scrollspy, reading time and living-plan progress, plus the reading
- * progress bar. Each listens to the canvas scroll itself, so scrolling re-renders only them.
+ * Outline sidebar with scrollspy and reading time, plus the reading progress bar. Each listens to
+ * the canvas scroll itself, so scrolling re-renders only them. Living-plan step progress is
+ * shown once, by the app shell.
  */
 import type { RefObject } from "preact";
 import { useEffect, useState } from "preact/hooks";
@@ -54,10 +55,9 @@ interface TocProps {
   canvas: RefObject<HTMLElement>;
   entries: TocEntry[];
   minutes: number;
-  steps: { done: number; total: number };
 }
 
-export function Toc({ canvas, entries, minutes, steps }: TocProps) {
+export function Toc({ canvas, entries, minutes }: TocProps) {
   const [active, setActive] = useState<string | undefined>();
   useScroll(
     canvas,
@@ -81,7 +81,6 @@ export function Toc({ canvas, entries, minutes, steps }: TocProps) {
     setActive(id);
   };
 
-  const pct = steps.total ? Math.round((steps.done / steps.total) * 100) : 0;
   return (
     <nav class="zen-toc" aria-label="Outline">
       <div class="zen-toc-header">
@@ -89,16 +88,6 @@ export function Toc({ canvas, entries, minutes, steps }: TocProps) {
           <h4>Outline</h4>
           <span class="zen-read-time">~{minutes} min read</span>
         </div>
-        {steps.total > 0 && (
-          <div class="zen-steps-progress" title={`${steps.done} of ${steps.total} steps done`}>
-            <div class="zen-steps-bar">
-              <div class="zen-steps-fill" style={{ width: `${pct}%` }} />
-            </div>
-            <span class="zen-steps-count">
-              {steps.done}/{steps.total} steps
-            </span>
-          </div>
-        )}
       </div>
       <div class="zen-toc-list">
         {entries.length === 0 && <div class="zen-toc-empty">No headings</div>}

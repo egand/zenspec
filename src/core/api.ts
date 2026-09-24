@@ -5,7 +5,7 @@
  * - The daemon binds to 127.0.0.1; CORS is limited to its own origin.
  * - A document is addressed by `:repoId/:docId`. The CLI obtains both from `POST /api/docs`.
  */
-import type { ZenEvent } from "./events.js";
+import type { ThreadReply, ZenEvent } from "./events.js";
 import type { ReviewPayload } from "./payload.js";
 import type {
   AttachmentRef,
@@ -41,6 +41,7 @@ export const ROUTES = {
   attachments: "/api/docs/:repoId/:docId/attachments", // POST raw image bytes
   attachment: "/api/docs/:repoId/:docId/attachments/:attachmentId", // GET image
   close: "/api/docs/:repoId/:docId/close", // POST
+  acceptDrift: "/api/docs/:repoId/:docId/drift/accept", // POST, returns AcceptDriftResponse
   events: "/api/docs/:repoId/:docId/events", // GET text/event-stream
   inbox: "/api/inbox", // GET, query InboxQuery
   inboxPending: "/api/inbox/pending", // POST, marks returned threads delivered
@@ -127,6 +128,18 @@ export interface DocStateResponse {
   content: string;
   contentHash: string;
   draft: Draft | null;
+  presence: Presence;
+}
+
+/**
+ * Whether an agent is around. `waiting` counts `zenspec review` calls blocked on the next
+ * review. `agentSeenAt` is the last time an agent did something the daemon saw: appended an
+ * event, or started or stopped waiting. The browser shows "agent working" when nobody waits
+ * and `agentSeenAt` is recent; the daemon cannot know more than that.
+ */
+export interface Presence {
+  waiting: number;
+  agentSeenAt?: IsoTime;
 }
 
 /**
@@ -191,6 +204,8 @@ export interface SubmitReviewRequest {
   summary: string;
   opened: NewThreadRequest[];
   reopened: { id: ThreadId; body: string; attachments: AttachmentRef[] }[];
+  /** Replies to unresolved threads that keep their status. */
+  replies: ThreadReply[];
   resolved: ThreadId[];
 }
 
@@ -205,6 +220,7 @@ export interface SubmitReviewResponse {
 export type ThreadActionRequest =
   | { action: "resolve" }
   | { action: "reopen"; body: string; attachments?: AttachmentRef[] }
+  | { action: "reply"; body: string; attachments?: AttachmentRef[] }
   | { action: "unstage" };
 
 export type ThreadActionResponse = DraftResponse;
@@ -216,6 +232,11 @@ export type ThreadActionResponse = DraftResponse;
  * characters of the sha256 of the bytes.
  */
 export type UploadAttachmentResponse = AttachmentRef;
+
+/** 409 when there is no pending drift or the session is closed. */
+export interface AcceptDriftResponse {
+  doc: Document;
+}
 
 export interface CloseRequest {
   reason?: string;
@@ -307,6 +328,8 @@ export const SSE_EVENTS = {
   content: "content",
   /** The draft changed (another tab). Data: `DraftResponse`. */
   draft: "draft",
+  /** An agent started or stopped waiting, or appended an event. Data: `Presence`. */
+  presence: "presence",
 } as const;
 
 export type SseEventName = (typeof SSE_EVENTS)[keyof typeof SSE_EVENTS];
@@ -319,4 +342,5 @@ export interface SseContent {
 export type SseMessage =
   | { event: typeof SSE_EVENTS.event; data: ZenEvent }
   | { event: typeof SSE_EVENTS.content; data: SseContent }
-  | { event: typeof SSE_EVENTS.draft; data: DraftResponse };
+  | { event: typeof SSE_EVENTS.draft; data: DraftResponse }
+  | { event: typeof SSE_EVENTS.presence; data: Presence };

@@ -12,6 +12,7 @@ import {
   latestRevision,
   nextStatus,
   openThreads,
+  pendingDrift,
   reduce,
   replay,
   threadsSince,
@@ -50,7 +51,7 @@ const review = (
   n: number,
   rev: number,
   verdict: ReviewSubmitted["verdict"],
-  changes: Partial<Pick<ReviewSubmitted, "opened" | "reopened" | "resolved">> = {},
+  changes: Partial<Pick<ReviewSubmitted, "opened" | "reopened" | "replies" | "resolved">> = {},
 ): ReviewSubmitted => ({
   ...base("reviewer"),
   type: "review_submitted",
@@ -429,6 +430,86 @@ describe("living-plan phases", () => {
 
   it("approves directly from drafting", () => {
     expect(replay([revision(1), review(1, 1, "approved")]).phase).toBe("approved");
+  });
+});
+
+describe("replies", () => {
+  it("appends a reply to an open thread without changing its status", () => {
+    const state = reduce(
+      withThread(),
+      review(2, 1, "comment", { replies: [{ thread: "t1", body: "any news?" }] }),
+    );
+    expect(status(state, "t1")).toBe("open");
+    expect(state.threads.t1!.messages.at(-1)).toMatchObject({
+      author: "reviewer",
+      action: "reply",
+      body: "any news?",
+      attachments: [],
+      review: 2,
+    });
+    expect(latestReview(state)?.replied).toEqual(["t1"]);
+    expect(threadsSince(state, 1).map((e) => e.thread.id)).toEqual(["t1"]);
+  });
+
+  it("keeps addressed threads addressed and skips resolved or unknown threads", () => {
+    const addressed = reduce(
+      withThread(...reach.addressed),
+      review(2, 1, "comment", { replies: [{ thread: "t1", body: "thanks" }] }),
+    );
+    expect(status(addressed, "t1")).toBe("addressed");
+    expect(addressed.threads.t1!.messages.at(-1)?.action).toBe("reply");
+
+    const resolved = withThread(...reach.resolved);
+    const after = reduce(
+      resolved,
+      review(3, 1, "comment", {
+        replies: [
+          { thread: "t1", body: "late" },
+          { thread: "t9", body: "?" },
+        ],
+      }),
+    );
+    expect(after.threads.t1).toEqual(resolved.threads.t1);
+    expect(latestReview(after)?.replied).toEqual([]);
+  });
+
+  it("accepts reviews logged before replies existed", () => {
+    const legacy = review(2, 1, "comment");
+    delete (legacy as Partial<ReviewSubmitted>).replies;
+    expect(latestReview(reduce(withThread(), legacy))?.replied).toEqual([]);
+  });
+});
+
+describe("drift acceptance", () => {
+  const accepted = (): ZenEvent => ({ ...base("reviewer"), type: "drift_accepted" });
+  const approved = () => replay([revision(1), review(1, 1, "approved"), stepChecked("s1")]);
+
+  it("acknowledges pending drift without changing the phase", () => {
+    const drifting = reduce(approved(), drifted(1));
+    expect(pendingDrift(drifting)).toHaveLength(1);
+    const state = reduce(drifting, accepted());
+    expect(state.phase).toBe("implementing");
+    expect(pendingDrift(state)).toEqual([]);
+    expect(state.drift[0]!.acceptedAt).toBeDefined();
+    expect(state.reviews).toHaveLength(1);
+  });
+
+  it("is a no-op without pending drift, and later drift is pending again", () => {
+    const state = approved();
+    expect(reduce(state, accepted())).toBe(state);
+    const again = replay([
+      revision(1),
+      review(1, 1, "approved"),
+      drifted(1),
+      accepted(),
+      drifted(1),
+    ]);
+    expect(pendingDrift(again).map((d) => d.acceptedAt)).toEqual([undefined]);
+  });
+
+  it("treats drift followed by a review as dealt with", () => {
+    const state = reduce(reduce(approved(), drifted(1)), review(2, 1, "changes_requested"));
+    expect(pendingDrift(state)).toEqual([]);
   });
 });
 

@@ -36,7 +36,7 @@ export interface PayloadInput {
   /** The review being delivered. Its `revision` is the reviewed revision. */
   review: Review;
   /**
-   * Threads to deliver: opened or reopened in `review`, plus, for `approved`, threads still
+   * Threads to deliver: opened, reopened or replied to in `review`, plus, for `approved`, threads still
    * open. Resolved threads are dropped defensively.
    */
   threads: Thread[];
@@ -86,7 +86,8 @@ export function buildClosedPayload(by: Author, reason?: string): ReviewPayload {
 
 function buildThread(thread: Thread, input: PayloadInput): PayloadThread {
   const reopened = input.review.reopened.includes(thread.id);
-  const message = deliveredMessage(thread, reopened);
+  const replied = input.review.replied.includes(thread.id);
+  const message = deliveredMessage(thread, reopened || replied);
   const body = message?.body || undefined;
   const at = lineRef(input.placements[thread.id]);
   const images = message?.attachments.map((a) => image(a, input.attachmentPath));
@@ -143,10 +144,17 @@ function buildThread(thread: Thread, input: PayloadInput): PayloadThread {
   }
 }
 
-/** The reviewer message this delivery is about: the reopen message, or the opening comment. */
-function deliveredMessage(thread: Thread, reopened: boolean): Message | undefined {
-  if (!reopened) return thread.messages[0];
-  return thread.messages.findLast((m) => m.action === "reopened") ?? thread.messages[0];
+/**
+ * The reviewer message this delivery is about: the latest reopen or reply when the review
+ * reopened or replied to the thread, otherwise the opening comment. A reply reuses the
+ * thread's entry (same keys, no `reopened`), so it costs no extra overhead.
+ */
+function deliveredMessage(thread: Thread, followUp: boolean): Message | undefined {
+  if (!followUp) return thread.messages[0];
+  return (
+    thread.messages.findLast((m) => m.action === "reopened" || m.action === "reply") ??
+    thread.messages[0]
+  );
 }
 
 function anchorQuote(anchor: Anchor): string {

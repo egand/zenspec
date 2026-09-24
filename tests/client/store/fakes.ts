@@ -70,6 +70,7 @@ export function fakeApi(initial: Partial<DocStateResponse> = {}) {
     content: DOC_TEXT,
     contentHash: "hash-1",
     draft: null,
+    presence: { waiting: 0 },
     ...initial,
   };
   const api = {
@@ -89,9 +90,11 @@ export function fakeApi(initial: Partial<DocStateResponse> = {}) {
         ts: new Date().toISOString(),
         opened: [],
         reopened: [],
+        replied: [],
         resolved: [],
       },
     })),
+    acceptDrift: vi.fn(async () => ({ doc: { ...state.doc, phase: "approved" as const } })),
     revisionText: vi.fn(async () => state.content),
     uploadAttachment: vi.fn(async (image: Blob) => ({
       id: "abcdef123456",

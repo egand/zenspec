@@ -70,12 +70,18 @@ export function publishRequest(body: Json): PublishRequest {
 export function submitRequest(body: Json): SubmitReviewRequest {
   const isReopen = (v: unknown) =>
     isObject(v) && isString(v.id) && isString(v.body) && arrayOf(isAttachment)(v.attachments);
+  const isReply = (v: unknown) =>
+    isObject(v) &&
+    isString(v.thread) &&
+    isString(v.body) &&
+    (v.attachments === undefined || arrayOf(isAttachment)(v.attachments));
   return {
     revision: field(body, "revision", Number.isInteger, "an integer"),
     verdict: field(body, "verdict", (v) => VERDICTS.includes(v as Verdict), VERDICTS.join("|")),
     summary: optional<string>(body, "summary", isString, "a string") ?? "",
     opened: optional(body, "opened", arrayOf(isNewThread), "a thread list") ?? [],
     reopened: optional(body, "reopened", arrayOf(isReopen), "a reopen list") ?? [],
+    replies: optional(body, "replies", arrayOf(isReply), "a reply list") ?? [],
     resolved: optional(body, "resolved", arrayOf(isString), "a thread id list") ?? [],
   };
 }
@@ -87,10 +93,11 @@ export function draftRequest(body: Json): Draft {
   field(body, "revision", Number.isInteger, "an integer");
   field(body, "threads", arrayOf(isDraftThread), "a draft thread list");
   field(body, "reopen", arrayOf(isDraftReopen), "a reopen list");
+  optional(body, "replies", arrayOf(isDraftReopen), "a reply list");
   field(body, "resolve", arrayOf(isString), "a thread id list");
   optional(body, "summary", isString, "a string");
   optional(body, "verdict", (v) => VERDICTS.includes(v as Verdict), VERDICTS.join("|"));
-  return { summary: "", ...body } as unknown as Draft;
+  return { summary: "", replies: [], ...body } as unknown as Draft;
 }
 
 export function threadActionRequest(body: Json): ThreadActionRequest {
@@ -99,13 +106,14 @@ export function threadActionRequest(body: Json): ThreadActionRequest {
     case "unstage":
       return { action: body.action };
     case "reopen":
+    case "reply":
       return {
-        action: "reopen",
+        action: body.action,
         body: field(body, "body", isString, "a string"),
         attachments: attachments(body),
       };
     default:
-      throw badRequest("`action` must be resolve|reopen|unstage");
+      throw badRequest("`action` must be resolve|reopen|reply|unstage");
   }
 }
 

@@ -69,10 +69,24 @@ describe("threads panel", () => {
     expect(app.ui.composer.value).toBeNull();
   });
 
-  it("offers only Resolve on an open thread", async () => {
-    const { root } = await mount(<ThreadsTab />, apiWithThreads());
-    const card = root.querySelector<HTMLElement>('[data-id="t2"]')!;
-    expect(button(card, "Resolve")).toBeTruthy();
-    expect(() => button(card, "Reply")).toThrow();
+  it("stages a reply on an open thread without reopening it", async () => {
+    const { app, root } = await mount(
+      <>
+        <ThreadsTab />
+        <Composer />
+      </>,
+      apiWithThreads(),
+    );
+    const card = () => root.querySelector<HTMLElement>('[data-id="t2"]')!;
+    expect(() => button(card(), "Reopen")).toThrow();
+    await click(button(card(), "Reply"));
+    await type(root.querySelector(".zen-modal textarea")!, "Any update?");
+    await click(button(root, "Stage reply"));
+
+    expect(app.store.draft.value?.replies).toEqual([
+      { thread: "t2", body: "Any update?", attachments: [] },
+    ]);
+    expect(app.store.draft.value?.reopen).toEqual([]);
+    expect(card().textContent).toContain("Reply staged");
   });
 });

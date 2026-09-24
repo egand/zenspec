@@ -31,6 +31,7 @@ function SubmitForm({ initialVerdict }: { initialVerdict: Verdict }) {
   const counts = {
     items: draft?.threads.length ?? 0,
     reopen: draft?.reopen.length ?? 0,
+    replies: draft?.replies.length ?? 0,
     resolve: draft?.resolve.length ?? 0,
   };
   const close = () => (ui.submit.value = null);
@@ -139,7 +140,8 @@ function SubmitForm({ initialVerdict }: { initialVerdict: Verdict }) {
       </label>
       <p class="zen-muted zen-submit-counts">
         {counts.items} new {counts.items === 1 ? "item" : "items"} · {counts.reopen} reopened ·{" "}
-        {counts.resolve} resolved · against revision {store.latest.value?.n ?? "—"}
+        {counts.replies} {counts.replies === 1 ? "reply" : "replies"} · {counts.resolve} resolved ·
+        against revision {store.latest.value?.n ?? "—"}
       </p>
       {error && <p class="zen-error">{error}</p>}
       <div class="zen-modal-actions">

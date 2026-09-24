@@ -3,9 +3,11 @@
  * postMessage element picker reports `{ cssPath, tag, textQuote }` for the clicked element.
  */
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import type { HtmlElement } from "../../../core/anchor.js";
 import { SelectionToolbar } from "../selection/SelectionToolbar.js";
 import type { DocumentViewProps, HtmlSelection, SelectAction } from "../types.js";
 import { withPicker } from "./picker.js";
+import { placeHtmlHighlights } from "./place.js";
 
 interface Picked {
   html: HtmlSelection["html"];
@@ -19,6 +21,8 @@ export function HtmlView({ source, highlights, onSelect, onHighlightClick }: Pro
   const frame = useRef<HTMLIFrameElement>(null);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [ready, setReady] = useState(0);
+  /** Elements of the loaded page, for client-side re-anchoring (see `place.ts`). */
+  const [elements, setElements] = useState<HtmlElement[] | null>(null);
   const srcdoc = useMemo(() => withPicker(source), [source]);
   const latest = useRef(onHighlightClick);
   latest.current = onHighlightClick;
@@ -28,6 +32,9 @@ export function HtmlView({ source, highlights, onSelect, onHighlightClick }: Pro
       if (!frame.current || e.source !== frame.current.contentWindow) return;
       const data = e.data as { zen?: string; [key: string]: unknown };
       if (data?.zen === "ready") setReady((n) => n + 1);
+      if (data?.zen === "elements" && Array.isArray(data.elements)) {
+        setElements(data.elements as HtmlElement[]);
+      }
       if (data?.zen === "thread" && typeof data.threadId === "string")
         latest.current(data.threadId);
       if (data?.zen === "pick") {
@@ -47,13 +54,14 @@ export function HtmlView({ source, highlights, onSelect, onHighlightClick }: Pro
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
+  // A new revision reloads the page, which reports its elements again.
+  useEffect(() => setElements(null), [srcdoc]);
+
   // Best effort: outline elements that have threads, once the page has loaded.
+  const items = useMemo(() => placeHtmlHighlights(highlights, elements), [highlights, elements]);
   useEffect(() => {
-    const items = highlights
-      .filter((h) => h.cssPath)
-      .map(({ threadId, cssPath, status, active }) => ({ threadId, cssPath, status, active }));
     frame.current?.contentWindow?.postMessage({ zen: "highlights", items }, "*");
-  }, [highlights, ready]);
+  }, [items, ready]);
 
   const act = (action: SelectAction) => {
     if (picked) onSelect({ html: picked.html, action });

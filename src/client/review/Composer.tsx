@@ -77,7 +77,7 @@ function ComposerForm({ state }: { state: ComposerState }) {
         });
         break;
       case "reply":
-        actions.reopen(state.threadId, body.trim(), attachments);
+        actions.reply(state.threadId, body.trim(), attachments);
         break;
     }
     close();
@@ -126,7 +126,9 @@ function ComposerForm({ state }: { state: ComposerState }) {
             : isSuggestion
               ? "Why? (optional)"
               : state.mode === "reply"
-                ? "Your reply reopens the thread"
+                ? store.state.value.threads[state.threadId]?.status === "open"
+                  ? "Your reply is added to the open thread"
+                  : "Your reply reopens the thread"
                 : "Leave a comment"
         }
       />

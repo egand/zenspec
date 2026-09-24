@@ -2,7 +2,7 @@
 import { useEffect } from "preact/hooks";
 import type { Message, Thread, ThreadStatus } from "../../core/types.js";
 import { useApp } from "../app/actions.js";
-import { stagedAction } from "../store/draft.js";
+import { stagedAction, type StagedAction } from "../store/draft.js";
 import { describeChoice, likelyAddressedHint, linkIn, noteFor, quoteOf } from "../store/view.js";
 import { Thumbnails } from "./Attachments.js";
 import { WordDiffView } from "./Composer.js";
@@ -66,6 +66,7 @@ export function ThreadsTab() {
 const ACTION_LABEL: Record<Message["action"], string> = {
   comment: "",
   reopened: "reopened",
+  reply: "replied",
   resolved: "resolved",
   edited: "edited the document",
   answered: "answered",
@@ -157,13 +158,7 @@ export function ThreadCard({ thread }: { thread: Thread }) {
   );
 }
 
-function ThreadActions({
-  thread,
-  staged,
-}: {
-  thread: Thread;
-  staged: "resolve" | "reopen" | null;
-}) {
+function ThreadActions({ thread, staged }: { thread: Thread; staged: StagedAction | null }) {
   const { ui, actions } = useApp();
   if (thread.status === "resolved") return null;
   if (staged) {
@@ -186,19 +181,17 @@ function ThreadActions({
       >
         Resolve
       </button>
+      <button
+        type="button"
+        class="zen-btn-sm"
+        onClick={() => (ui.composer.value = { mode: "reply", threadId: thread.id })}
+      >
+        Reply
+      </button>
       {canReopen && (
-        <>
-          <button
-            type="button"
-            class="zen-btn-sm"
-            onClick={() => (ui.composer.value = { mode: "reply", threadId: thread.id })}
-          >
-            Reply
-          </button>
-          <button type="button" class="zen-btn-sm" onClick={() => actions.reopen(thread.id, "")}>
-            Reopen
-          </button>
-        </>
+        <button type="button" class="zen-btn-sm" onClick={() => actions.reopen(thread.id, "")}>
+          Reopen
+        </button>
       )}
     </div>
   );

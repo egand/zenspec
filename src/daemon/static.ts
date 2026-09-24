@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json",
   ".svg": "image/svg+xml",
@@ -36,7 +37,14 @@ export function serveIndex(res: ServerResponse, clientDir: string): void {
   }
 }
 
-/** Serves `clientDir/<relative>` if it exists inside `clientDir`. Returns whether it did. */
+/** Build outputs under these folders have a content hash in their name (see `scripts/build.ts`). */
+const HASHED = /^(chunks|assets)\//;
+
+/**
+ * Serves `clientDir/<relative>` if it exists inside `clientDir`. Returns whether it did.
+ * Code-split chunks (`chunks/*.js`) and fonts (`assets/*`) are content-hashed, so they are cached
+ * for good; `index.html`, `main.js` and `main.css` are revalidated.
+ */
 export function serveFile(res: ServerResponse, clientDir: string, relative: string): boolean {
   const root = path.resolve(clientDir);
   const file = path.resolve(root, relative);
@@ -46,7 +54,9 @@ export function serveFile(res: ServerResponse, clientDir: string, relative: stri
   res.writeHead(200, {
     "Content-Type": TYPES[path.extname(file)] ?? "application/octet-stream",
     "Content-Length": body.length,
-    "Cache-Control": "no-cache",
+    "Cache-Control": HASHED.test(path.relative(root, file).split(path.sep).join("/"))
+      ? "public, max-age=31536000, immutable"
+      : "no-cache",
   });
   res.end(body);
   return true;

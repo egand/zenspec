@@ -9,7 +9,10 @@ export function ReviewPanel() {
   const { store, ui } = useApp();
   const draft = store.draft.value;
   const draftCount =
-    (draft?.threads.length ?? 0) + (draft?.reopen.length ?? 0) + (draft?.resolve.length ?? 0);
+    (draft?.threads.length ?? 0) +
+    (draft?.reopen.length ?? 0) +
+    (draft?.replies.length ?? 0) +
+    (draft?.resolve.length ?? 0);
   const openCount = store.threads.value.filter((t) => t.status === "open").length;
   const tabs: { id: PanelTab; label: string; count?: number }[] = [
     { id: "draft", label: "Draft", count: draftCount },

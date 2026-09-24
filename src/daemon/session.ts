@@ -8,6 +8,7 @@ import fs from "node:fs";
 import type {
   CloseRequest,
   DocStateResponse,
+  Presence,
   PublishRequest,
   PublishResponse,
   SseMessage,
@@ -19,7 +20,14 @@ import { reanchorDraft, reanchorThreads, type Snapshot } from "../core/anchor.js
 import { diffHunks } from "../core/diff.js";
 import { EVENT_SCHEMA_VERSION, type UnstampedEvent, type ZenEvent } from "../core/events.js";
 import { classifyChange, parseDocument } from "../core/parse.js";
-import { latestReview, latestRevision, reduce, replay, threadList } from "../core/reducer.js";
+import {
+  latestReview,
+  latestRevision,
+  pendingDrift,
+  reduce,
+  replay,
+  threadList,
+} from "../core/reducer.js";
 import type {
   Author,
   DocState,
@@ -73,6 +81,8 @@ export class DocSession {
   private disk: string | null;
   private readonly listeners = new Set<Listener>();
   private readonly waiters = new Set<Waiter>();
+  /** Last agent activity seen by this daemon process (see `Presence`). */
+  private agentSeenAt: string | undefined;
 
   constructor(
     readonly ref: DocumentRef,
@@ -82,7 +92,10 @@ export class DocSession {
     this.file = absolutePath(ref);
     this.events = storage.readEvents();
     this.current = replay(this.events);
-    this.draftValue = storage.readDraft();
+    const draft = storage.readDraft();
+    // Drafts saved before replies existed lack the field.
+    this.draftValue = draft && { ...draft, replies: draft.replies ?? [] };
+    this.agentSeenAt = this.events.findLast((e) => isAgent(e.author))?.ts;
     this.disk = this.readDiskOrNull();
   }
 
@@ -133,7 +146,20 @@ export class DocSession {
       content,
       contentHash: hashContent(content),
       draft: this.draftValue,
+      presence: this.presence,
     };
+  }
+
+  get presence(): Presence {
+    return {
+      waiting: this.waiters.size,
+      ...(this.agentSeenAt && { agentSeenAt: this.agentSeenAt }),
+    };
+  }
+
+  private agentActive(): void {
+    this.agentSeenAt = new Date().toISOString();
+    this.broadcast({ event: SSE_EVENTS.presence, data: this.presence });
   }
 
   // -------------------------------------------------------------------------
@@ -150,6 +176,7 @@ export class DocSession {
     this.events.push(stamped);
     this.current = reduce(this.current, stamped);
     this.broadcast({ event: SSE_EVENTS.event, data: stamped });
+    if (isAgent(stamped.author)) this.agentActive();
     return stamped;
   }
 
@@ -228,7 +255,8 @@ export class DocSession {
     if (req.revision !== last.n) {
       throw conflict(`Review targets revision ${req.revision}, but the latest is ${last.n}`);
     }
-    for (const id of [...req.reopened.map((r) => r.id), ...req.resolved]) {
+    const touched = [...req.reopened.map((r) => r.id), ...req.replies.map((r) => r.thread)];
+    for (const id of [...touched, ...req.resolved]) {
       if (!this.current.threads[id]) throw badRequest(`Unknown thread: ${id}`);
     }
 
@@ -243,6 +271,7 @@ export class DocSession {
       summary: req.summary,
       opened,
       reopened: req.reopened,
+      ...(req.replies.length > 0 && { replies: req.replies }),
       resolved: req.resolved,
     });
     this.setDraft(null);
@@ -277,18 +306,27 @@ export class DocSession {
     this.broadcast({ event: SSE_EVENTS.draft, data: { draft: this.draftValue } });
   }
 
-  /** Stages resolve/reopen in the draft; only `review_submitted` changes thread status. */
+  /** Stages resolve/reopen/reply in the draft; only `review_submitted` changes threads. */
   stageThreadAction(id: ThreadId, action: ThreadActionRequest): Draft {
     if (!this.current.threads[id]) throw notFound(`Unknown thread: ${id}`);
     const draft = this.draftValue ?? this.emptyDraft();
     const reopen = draft.reopen.filter((r) => r.thread !== id);
+    const replies = draft.replies.filter((r) => r.thread !== id);
     const resolve = draft.resolve.filter((t) => t !== id);
     if (action.action === "resolve") resolve.push(id);
-    if (action.action === "reopen") {
-      reopen.push({ thread: id, body: action.body, attachments: action.attachments ?? [] });
+    if (action.action === "reopen" || action.action === "reply") {
+      const staged = { thread: id, body: action.body, attachments: action.attachments ?? [] };
+      (action.action === "reopen" ? reopen : replies).push(staged);
     }
-    this.setDraft({ ...draft, reopen, resolve });
+    this.setDraft({ ...draft, reopen, replies, resolve });
     return this.draftValue as Draft;
+  }
+
+  /** §10: accepts every pending drift. Does not change the phase or wake waiters. */
+  acceptDrift(author: Author = "reviewer"): void {
+    if (this.current.closed) throw conflict("The review session is closed");
+    if (!pendingDrift(this.current).length) throw conflict("There is no plan drift to accept");
+    this.append({ type: "drift_accepted", author });
   }
 
   private emptyDraft(): Draft {
@@ -297,6 +335,7 @@ export class DocSession {
       summary: "",
       threads: [],
       reopen: [],
+      replies: [],
       resolve: [],
       updatedAt: new Date().toISOString(),
     };
@@ -324,7 +363,10 @@ export class DocSession {
         settle: (outcome) => {
           clearTimeout(timer);
           signal?.removeEventListener("abort", onAbort);
-          if (this.waiters.delete(waiter)) this.ctx.onActivity();
+          if (this.waiters.delete(waiter)) {
+            this.ctx.onActivity();
+            this.agentActive();
+          }
           resolve(outcome);
         },
       };
@@ -333,6 +375,7 @@ export class DocSession {
       signal?.addEventListener("abort", onAbort);
       this.waiters.add(waiter);
       this.ctx.onActivity();
+      this.agentActive();
     });
   }
 
@@ -386,6 +429,11 @@ export class DocSession {
       });
     }
   }
+}
+
+/** Reviewer and daemon events are not agent activity; any other author is an agent. */
+function isAgent(author: Author): boolean {
+  return author !== "reviewer" && author !== "daemon";
 }
 
 /** E.g. `+3 -1 lines at L12, L40`. */

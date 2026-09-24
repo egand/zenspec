@@ -184,7 +184,7 @@ describe("knowledge-base terms (§11)", () => {
 });
 
 describe("living-plan steps (§10)", () => {
-  it("renders read-only checkboxes with a checked timestamp and a progress count", async () => {
+  it("renders read-only checkboxes with a checked timestamp, leaving progress to the shell", async () => {
     await show(
       props({
         steps: { "steps/build-event-log": { checked: true, checkedAt: "2026-09-24T10:00:00Z" } },
@@ -197,7 +197,8 @@ describe("living-plan steps (§10)", () => {
     ]);
     expect(boxes[0]!.title).toMatch(/^Checked /);
     expect($(".zen-step-current")?.textContent).toContain("Write reducer");
-    expect($(".zen-steps-count")?.textContent).toBe("1/2 steps");
+    // One progress bar only: the app shell's (LivingPlan), not the outline.
+    expect($(".zen-toc .zen-progress, .zen-steps-count")).toBeNull();
   });
 });
 

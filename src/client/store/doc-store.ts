@@ -8,7 +8,7 @@
  *   edits are unsaved, draft pushes from the daemon are ignored so they can't clobber them.
  */
 import { batch, computed, signal } from "@preact/signals";
-import type { KbNote, SseMessage } from "../../core/api.js";
+import type { KbNote, Presence, SseMessage } from "../../core/api.js";
 import { SSE_EVENTS } from "../../core/api.js";
 import { reanchorDraft } from "../../core/anchor.js";
 import type { ZenEvent } from "../../core/events.js";
@@ -17,6 +17,7 @@ import {
   initialState,
   latestReview,
   latestRevision,
+  pendingDrift,
   reduce,
   replay,
   threadList,
@@ -52,6 +53,7 @@ export function createDocStore({ api, sse, saveDelayMs = 400 }: DocStoreOptions)
   const loadError = signal<string | null>(null);
   const connection = signal<ConnectionStatus>("connecting");
   const saveStatus = signal<SaveStatus>("saved");
+  const presence = signal<Presence>({ waiting: 0 });
 
   // -------------------------------------------------------------------------
   // Derived
@@ -62,11 +64,8 @@ export function createDocStore({ api, sse, saveDelayMs = 400 }: DocStoreOptions)
   const lastReview = computed(() => latestReview(state.value));
   const phase = computed(() => state.value.phase);
   const steps = computed(() => state.value.steps);
-  /** Drift not yet followed by a review: what the banner shows (§10). */
-  const drift = computed(() => {
-    const since = lastReview.value?.ts ?? "";
-    return state.value.drift.filter((d) => d.ts > since);
-  });
+  /** Drift neither accepted nor followed by a review: what the banner shows (§10). */
+  const drift = computed(() => pendingDrift(state.value));
   const latestText = computed(() => {
     const n = latest.value?.n;
     return n === undefined ? undefined : revisionTexts.value[n];
@@ -110,6 +109,7 @@ export function createDocStore({ api, sse, saveDelayMs = 400 }: DocStoreOptions)
         ref.value = snap.doc;
         state.value = replay(snap.events);
         setContent(snap.content, snap.contentHash);
+        presence.value = snap.presence;
         if (!hasLocalEdits()) draft.value = snap.draft;
         loaded.value = true;
         loadError.value = null;
@@ -136,6 +136,9 @@ export function createDocStore({ api, sse, saveDelayMs = 400 }: DocStoreOptions)
         return applyEvent(message.data);
       case SSE_EVENTS.content:
         return setContent(message.data.content, message.data.contentHash);
+      case SSE_EVENTS.presence:
+        presence.value = message.data;
+        return;
       case SSE_EVENTS.draft:
         if (!hasLocalEdits()) draft.value = message.data.draft;
     }
@@ -248,6 +251,11 @@ export function createDocStore({ api, sse, saveDelayMs = 400 }: DocStoreOptions)
     }
   }
 
+  /** §10: the `drift_accepted` event arrives over SSE and clears the banner. */
+  async function acceptDrift(): Promise<void> {
+    await api.acceptDrift();
+  }
+
   // -------------------------------------------------------------------------
   // Lifecycle
   // -------------------------------------------------------------------------
@@ -290,6 +298,7 @@ export function createDocStore({ api, sse, saveDelayMs = 400 }: DocStoreOptions)
     loadError,
     connection,
     saveStatus,
+    presence,
     // derived
     threads,
     revisions,
@@ -313,6 +322,7 @@ export function createDocStore({ api, sse, saveDelayMs = 400 }: DocStoreOptions)
     updateDraft,
     flushDraft,
     submit,
+    acceptDrift,
   };
 }
 

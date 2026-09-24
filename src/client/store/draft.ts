@@ -23,6 +23,7 @@ export function emptyDraft(revision: number): Draft {
     summary: "",
     threads: [],
     reopen: [],
+    replies: [],
     resolve: [],
     updatedAt: new Date().toISOString(),
   };
@@ -37,7 +38,13 @@ export function newDraftId(taken: readonly DraftThread[] = []): string {
 }
 
 export function isDraftEmpty(draft: Draft | null): boolean {
-  return !draft || (!draft.threads.length && !draft.reopen.length && !draft.resolve.length);
+  return (
+    !draft ||
+    (!draft.threads.length &&
+      !draft.reopen.length &&
+      !draft.replies.length &&
+      !draft.resolve.length)
+  );
 }
 
 export function addThread(
@@ -150,6 +157,7 @@ function unstaged(draft: Draft, id: ThreadId): Draft {
   return {
     ...draft,
     reopen: draft.reopen.filter((r) => r.thread !== id),
+    replies: draft.replies.filter((r) => r.thread !== id),
     resolve: draft.resolve.filter((t) => t !== id),
   };
 }
@@ -170,13 +178,42 @@ export function stageReopen(
   return { ...next, reopen: [...next.reopen, { thread: id, body, attachments }] };
 }
 
+/** Reply to an open thread: a message that leaves its status alone. */
+export function stageReply(
+  draft: Draft,
+  id: ThreadId,
+  body: string,
+  attachments: AttachmentRef[] = [],
+): Draft {
+  const next = unstaged(draft, id);
+  return { ...next, replies: [...next.replies, { thread: id, body, attachments }] };
+}
+
+/**
+ * What "Reply" does for a thread: an open thread gets a plain reply; an addressed, declined or
+ * outdated one is reopened by it (the agent must look again).
+ */
+export function stageReplyTo(
+  draft: Draft,
+  thread: Pick<Thread, "id" | "status">,
+  body: string,
+  attachments: AttachmentRef[] = [],
+): Draft {
+  return thread.status === "open"
+    ? stageReply(draft, thread.id, body, attachments)
+    : stageReopen(draft, thread.id, body, attachments);
+}
+
 export function unstage(draft: Draft, id: ThreadId): Draft {
   return unstaged(draft, id);
 }
 
-export function stagedAction(draft: Draft | null, id: ThreadId): "resolve" | "reopen" | null {
+export type StagedAction = "resolve" | "reopen" | "reply";
+
+export function stagedAction(draft: Draft | null, id: ThreadId): StagedAction | null {
   if (draft?.resolve.includes(id)) return "resolve";
   if (draft?.reopen.some((r) => r.thread === id)) return "reopen";
+  if (draft?.replies?.some((r) => r.thread === id)) return "reply";
   return null;
 }
 
@@ -198,6 +235,11 @@ export function toSubmitRequest(
     // Orphaned items are still sent: the agent gets their original quote.
     opened: d.threads.map(({ draftId: _id, orphaned: _o, placement: _p, ...thread }) => thread),
     reopened: d.reopen.map((r) => ({ id: r.thread, body: r.body, attachments: r.attachments })),
+    replies: (d.replies ?? []).map((r) => ({
+      thread: r.thread,
+      body: r.body,
+      ...(r.attachments.length > 0 && { attachments: r.attachments }),
+    })),
     resolved: [...d.resolve],
   };
 }

@@ -84,6 +84,7 @@ export function review(
   opened: ThreadId[],
   reopened: ThreadId[] = [],
   summary = "Mostly good; caching section needs work.",
+  replied: ThreadId[] = [],
 ): Review {
   return {
     n: 3,
@@ -94,6 +95,7 @@ export function review(
     ts: TS,
     opened,
     reopened,
+    replied,
     resolved: [],
   };
 }
@@ -209,6 +211,26 @@ export function approvedWithOpenThreads(): PayloadInput {
       thread("t21", { kind: "general" }, [msg("Add metrics later.")]),
     ],
     placements: { t20: at(6) },
+    docPath: DOC_PATH,
+    attachmentPath,
+  };
+}
+
+/** A comment review that only replies to two threads that are still open. */
+export function repliesReview(): PayloadInput {
+  return {
+    review: review("comment", [], [], "", ["t8", "t11"]),
+    threads: [
+      thread("t8", { kind: "comment", anchor: anchor("cache invalidation via TTL only", [5, 5]) }, [
+        msg("What about write-through for the session table?"),
+        msg("Also: what happens on a cache stampede?", { action: "reply", review: 3 }),
+      ]),
+      thread("t11", { kind: "general" }, [
+        msg("Can you add a rollback section?"),
+        msg("See the attached flow.", { action: "reply", review: 3, attachments: [image(2)] }),
+      ]),
+    ],
+    placements: { t8: at(5) },
     docPath: DOC_PATH,
     attachmentPath,
   };

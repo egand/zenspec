@@ -9,10 +9,13 @@ import type { Placement, Review, Thread, ThreadId } from "../core/types.js";
 import type { KnowledgeBase } from "./kb.js";
 import { snapshotOf, type DocSession } from "./session.js";
 
-/** Open threads opened or reopened in `review`, plus every open thread when it approves. */
+/**
+ * Open threads opened, reopened or replied to in `review`, plus every open thread when it
+ * approves.
+ */
 function deliveredThreads(session: DocSession, review: Review): Thread[] {
   const { threads, threadOrder } = session.state;
-  const ids = new Set([...review.opened, ...review.reopened]);
+  const ids = new Set([...review.opened, ...review.reopened, ...review.replied]);
   if (review.verdict === "approved") {
     for (const id of threadOrder) if (threads[id]?.status === "open") ids.add(id);
   }
@@ -91,6 +94,7 @@ export function implementationPayload(
     ...last,
     opened: fresh.flatMap((r) => r.opened),
     reopened: fresh.flatMap((r) => r.reopened),
+    replied: fresh.flatMap((r) => r.replied),
   };
   const payload = reviewPayload(session, merged, kb);
   return { payload: payload.threads?.length ? payload : null, lastReview: last.n };

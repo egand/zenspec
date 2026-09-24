@@ -14,12 +14,16 @@ const KIND_LABEL = {
   general: "General",
 } as const;
 
+const STAGED_LABEL = { resolve: "Resolve", reopen: "Reopen", reply: "Reply" } as const;
+
 export function DraftTab() {
   const { store, ui, actions } = useApp();
   const draft = store.draft.value;
   const items = draft?.threads ?? [];
   const staged = [
     ...(draft?.reopen.map((r) => ({ id: r.thread, action: "reopen" as const, body: r.body })) ??
+      []),
+    ...(draft?.replies.map((r) => ({ id: r.thread, action: "reply" as const, body: r.body })) ??
       []),
     ...(draft?.resolve.map((id) => ({ id, action: "resolve" as const, body: "" })) ?? []),
   ];
@@ -41,9 +45,7 @@ export function DraftTab() {
         {staged.map((s) => (
           <div class="zen-card" key={`${s.action}-${s.id}`}>
             <div class="zen-card-head">
-              <span class={`zen-tag zen-tag-${s.action}`}>
-                {s.action === "resolve" ? "Resolve" : "Reopen"}
-              </span>
+              <span class={`zen-tag zen-tag-${s.action}`}>{STAGED_LABEL[s.action]}</span>
               <button type="button" class="zen-link" onClick={() => actions.focusThread(s.id)}>
                 {s.id}
               </button>

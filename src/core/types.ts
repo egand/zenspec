@@ -78,6 +78,8 @@ export interface Review {
   ts: IsoTime;
   opened: ThreadId[];
   reopened: ThreadId[];
+  /** Threads that received a reply without a status change. */
+  replied: ThreadId[];
   resolved: ThreadId[];
 }
 
@@ -173,8 +175,11 @@ export type NewThread = ThreadSpec & {
 
 export type ResponseAction = "edited" | "answered" | "declined";
 
-/** What a message did to its thread. `comment` is the opening message. */
-export type MessageAction = "comment" | "reopened" | "resolved" | ResponseAction;
+/**
+ * What a message did to its thread. `comment` is the opening message; `reply` is a reviewer
+ * message on a thread that stays in its status.
+ */
+export type MessageAction = "comment" | "reopened" | "reply" | "resolved" | ResponseAction;
 
 export interface Message {
   author: Author;
@@ -291,6 +296,9 @@ export interface DraftReopen {
   attachments: AttachmentRef[];
 }
 
+/** A staged reply to an unresolved thread that does not change its status. */
+export type DraftReply = DraftReopen;
+
 export interface Draft {
   /** Revision the draft was last re-anchored against. */
   revision: number;
@@ -298,6 +306,7 @@ export interface Draft {
   summary: string;
   threads: DraftThread[];
   reopen: DraftReopen[];
+  replies: DraftReply[];
   resolve: ThreadId[];
   updatedAt: IsoTime;
 }
@@ -315,6 +324,8 @@ export interface Drift {
   revision: number;
   diffSummary: string;
   ts: IsoTime;
+  /** Set by `drift_accepted`: the reviewer accepted the change (§10). */
+  acceptedAt?: IsoTime;
 }
 
 export interface DocState {

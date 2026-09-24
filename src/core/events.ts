@@ -37,6 +37,13 @@ export interface RevisionPublished extends EventBase {
   placements?: Record<ThreadId, Placement>;
 }
 
+/** A reviewer message on an unresolved thread that keeps its status. */
+export interface ThreadReply {
+  thread: ThreadId;
+  body: string;
+  attachments?: AttachmentRef[];
+}
+
 export interface ReviewSubmitted extends EventBase {
   type: "review_submitted";
   n: number;
@@ -45,6 +52,8 @@ export interface ReviewSubmitted extends EventBase {
   summary: string;
   opened: NewThread[];
   reopened: { id: ThreadId; body: string; attachments: AttachmentRef[] }[];
+  /** Absent in events written before replies existed. */
+  replies?: ThreadReply[];
   resolved: ThreadId[];
 }
 
@@ -68,6 +77,14 @@ export interface PlanDrifted extends EventBase {
   diffSummary: string;
 }
 
+/**
+ * Living plans (§10): the reviewer accepted every drift recorded so far. Acknowledges only:
+ * the phase does not change and no agent is woken.
+ */
+export interface DriftAccepted extends EventBase {
+  type: "drift_accepted";
+}
+
 export interface SessionClosed extends EventBase {
   type: "session_closed";
   by: Author;
@@ -75,7 +92,13 @@ export interface SessionClosed extends EventBase {
 }
 
 export type ZenEvent =
-  RevisionPublished | ReviewSubmitted | AgentResponded | StepChecked | PlanDrifted | SessionClosed;
+  | RevisionPublished
+  | ReviewSubmitted
+  | AgentResponded
+  | StepChecked
+  | PlanDrifted
+  | DriftAccepted
+  | SessionClosed;
 
 export type ZenEventType = ZenEvent["type"];
 

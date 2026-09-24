@@ -107,6 +107,7 @@ export class Doc {
       summary: "",
       opened: [],
       reopened: [],
+      replies: [],
       resolved: [],
       ...req,
     };

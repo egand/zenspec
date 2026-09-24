@@ -7,6 +7,31 @@ import { useEffect, useLayoutEffect, useState } from "preact/hooks";
 import type { DocFocus, DocHighlight } from "../types.js";
 import { bandForLines, lineRuns, type Band } from "./geometry.js";
 
+const KIND_ICON: Record<DocHighlight["kind"], string> = {
+  comment: "❝",
+  suggestion: "±",
+  decision: "✓",
+  explain: "?",
+  general: "•",
+};
+
+const PIN_WIDTH = 36;
+
+/**
+ * A margin pin: the kind's icon plus the thread's number (`t12` → `12`), or `+` for a draft
+ * item, whose id means nothing to the reader. The id itself is only in the tooltip.
+ */
+export function pinLabel(h: Pick<DocHighlight, "threadId" | "kind" | "status">) {
+  const number = /^t(\d+)$/.exec(h.threadId)?.[1];
+  return {
+    icon: KIND_ICON[h.kind],
+    number: number ?? "+",
+    title: number
+      ? `Thread ${h.threadId} · ${h.kind} · ${h.status}`
+      : `Draft ${h.kind} (${h.threadId}), not submitted yet`,
+  };
+}
+
 interface Props {
   body: RefObject<HTMLElement>;
   /** Changes whenever the rendered content may have moved. */
@@ -58,7 +83,7 @@ export function Overlay({
     if (!el) return;
     const slots = new Map<number, number>();
     const hs = highlights.flatMap((h) => {
-      const band = bandForLines(el, h.lines);
+      const band = h.lines && bandForLines(el, h.lines);
       if (!band) return [];
       const top = Math.round(band.top);
       const slot = slots.get(top) ?? 0;
@@ -110,19 +135,26 @@ export function Overlay({
         {pulse && <div key={pulse.nonce} class="zen-pulse" style={style(pulse.band)} />}
       </div>
       <div class="zen-doc-deco zen-doc-deco-pins">
-        {placed.highlights.map(({ h, band, slot }) => (
-          <button
-            key={h.threadId}
-            type="button"
-            data-zen-ui
-            class={`zen-pin zen-pin-${h.kind} zen-pin-${h.status}${h.active ? " is-active" : ""}`}
-            style={{ top: `${band.top}px`, left: `${-34 - slot * 24}px` }}
-            title={`Thread ${h.threadId} (${h.kind}, ${h.status})`}
-            onClick={() => onHighlightClick(h.threadId)}
-          >
-            {h.threadId.replace(/^t(?=\d)/, "")}
-          </button>
-        ))}
+        {placed.highlights.map(({ h, band, slot }) => {
+          const label = pinLabel(h);
+          return (
+            <button
+              key={h.threadId}
+              type="button"
+              data-zen-ui
+              class={`zen-pin zen-pin-${h.kind} zen-pin-${h.status}${h.active ? " is-active" : ""}`}
+              style={{ top: `${band.top}px`, left: `${-(PIN_WIDTH + 8) - slot * PIN_WIDTH}px` }}
+              title={label.title}
+              aria-label={label.title}
+              onClick={() => onHighlightClick(h.threadId)}
+            >
+              <span class="zen-pin-icon" aria-hidden="true">
+                {label.icon}
+              </span>
+              {label.number}
+            </button>
+          );
+        })}
       </div>
     </>
   );

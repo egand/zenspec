@@ -7,6 +7,7 @@ import {
   emptyDraft,
   setAnswer,
   stageReopen,
+  stageReply,
   stageResolve,
   stagedAction,
   toSubmitRequest,
@@ -102,6 +103,7 @@ describe("toSubmitRequest", () => {
     ]);
     draft = { ...draft, threads: draft.threads.map((t) => ({ ...t, orphaned: true })) };
     draft = stageReopen(stageResolve(draft, "t2"), "t3", "still unclear");
+    draft = stageReply(draft, "t4", "one more thing");
 
     expect(toSubmitRequest(draft, 4, "changes_requested", "Needs work")).toEqual({
       revision: 4,
@@ -115,6 +117,7 @@ describe("toSubmitRequest", () => {
         },
       ],
       reopened: [{ id: "t3", body: "still unclear", attachments: [] }],
+      replies: [{ thread: "t4", body: "one more thing" }],
       resolved: ["t2"],
     });
   });

@@ -119,6 +119,73 @@ describe("review round", () => {
   });
 });
 
+describe("replies", () => {
+  it("delivers a reply on an open thread to the waiting agent without changing its status", async () => {
+    const { doc } = await setup();
+    await doc.publish();
+    const anchor = doc.anchor(PLAN, "cache invalidation via TTL only", 1);
+    await doc.submit({
+      revision: 1,
+      opened: [{ kind: "comment", anchor, body: "Write-through?", attachments: [] }],
+    });
+
+    const waiting = doc.wait(1);
+    const review = await doc.submit({
+      revision: 1,
+      verdict: "comment",
+      replies: [{ thread: "t1", body: "And what about stampedes?" }],
+    });
+    expect(review).toMatchObject({ n: 2, replied: ["t1"], opened: [], reopened: [] });
+    const delivered = await waiting;
+    expect(delivered).toMatchObject({
+      status: "delivered",
+      payload: {
+        verdict: "comment",
+        threads: [{ id: "t1", kind: "comment", at: "L7", body: "And what about stampedes?" }],
+      },
+    });
+    const state = replay((await doc.state()).events);
+    expect(state.threads.t1?.status).toBe("open");
+    expect(state.threads.t1?.messages.map((m) => m.action)).toEqual(["comment", "reply"]);
+  });
+
+  it("stages a reply through the thread route", async () => {
+    const { doc, api } = await setup();
+    await doc.publish();
+    await doc.submit({ revision: 1, opened: [{ kind: "general", body: "x", attachments: [] }] });
+    const { draft } = await api.ok("POST", doc.route(ROUTES.thread, { threadId: "t1" }), {
+      action: "reply",
+      body: "ping",
+    });
+    expect(draft).toMatchObject({ replies: [{ thread: "t1", body: "ping", attachments: [] }] });
+  });
+});
+
+describe("agent presence", () => {
+  it("reports waiters in the state and over SSE", async () => {
+    const { doc, api } = await setup();
+    const before = (await doc.state()).presence;
+    expect(before).toEqual({ waiting: 0 });
+
+    const stream = await fetch(api.base + doc.route(ROUTES.events));
+    const reader = stream.body!.pipeThrough(new TextDecoderStream()).getReader();
+    await doc.publish();
+    const waiting = doc.wait(0);
+    let received = "";
+    while (!received.includes('"waiting":1')) received += (await reader.read()).value;
+    await reader.cancel();
+    expect(received).toContain("event: presence");
+
+    const { presence } = await doc.state();
+    expect(presence.waiting).toBe(1);
+    expect(Date.now() - Date.parse(presence.agentSeenAt!)).toBeLessThan(10_000);
+
+    await doc.submit({ revision: 1, verdict: "comment" });
+    await waiting;
+    expect((await doc.state()).presence.waiting).toBe(0);
+  });
+});
+
 describe("re-anchoring on publish", () => {
   it("records placements, moving threads whose text is gone to outdated", async () => {
     const text = `${PLAN}## Security\n\nRotate keys monthly.\n`;
@@ -174,6 +241,7 @@ describe("draft", () => {
         },
       ],
       reopen: [],
+      replies: [],
       resolve: [],
       updatedAt: "",
     };
