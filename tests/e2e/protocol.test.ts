@@ -244,18 +244,29 @@ describe("zenspec CLI against the real daemon", { timeout: 30_000 }, () => {
 
   it("delivers the same payload to concurrent waiters on one document", async () => {
     const w = workspace();
-    const waiters = [
-      w.zenspec("review", PLAN_PATH, "--no-open"),
-      w.zenspec("review", PLAN_PATH, "--no-open"),
-    ];
+    // Two cold starts race to spawn the daemon; exactly one survives (checked in afterEach).
+    const cold = await Promise.all([w.zenspec("status"), w.zenspec("status")]);
+    expect(cold.map((r) => r.code)).toEqual([0, 0]);
+
+    const first = w.zenspec("review", PLAN_PATH, "--no-open");
     const doc = await w.reviewer(1);
-    await doc.submit({
-      revision: 1,
-      verdict: "comment",
-      opened: [{ kind: "general", body: "Looks fine", attachments: [] }],
-    });
+    const general = { kind: "general" as const, body: "Why?", attachments: [] };
+    await doc.submit({ revision: 1, opened: [general] });
+    await first;
+
+    // A waiter only receives reviews submitted after its publish, so submit once both waiters
+    // are registered: each records a response, which is observable in the event log.
+    const waiters = ["a", "b"].map((note) =>
+      w.zenspec("review", PLAN_PATH, "--no-open", "-r", `t1:answered:${note}`),
+    );
+    await vi.waitFor(async () => {
+      const events = (await doc.state()).events.filter((e) => e.type === "agent_responded");
+      expect(events).toHaveLength(2);
+    }, WAIT);
+    await doc.submit({ revision: 1, verdict: "comment", opened: [{ ...general, body: "Fine" }] });
+
     const [a, b] = await Promise.all(waiters);
-    expect(payloadOf(a!)).toMatchObject({ verdict: "comment", threads: [{ id: "t1" }] });
+    expect(payloadOf(a!)).toMatchObject({ verdict: "comment", review: 2, threads: [{ id: "t2" }] });
     expect(b!.stdout).toBe(a!.stdout);
   });
 
