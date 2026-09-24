@@ -124,12 +124,17 @@ describe("dispatch and help", () => {
     expect(result.stderr).toMatch(/^zenspec: unknown command: frobnicate\nusage: zenspec/);
   });
 
-  it.each(["adr", "export"])("stubs %s as not implemented", async (name) => {
-    expect(await run([name, "x.md"], opts())).toMatchObject({
-      code: EXIT.usage,
-      stderr: `zenspec: ${name} is not implemented yet\n`,
-    });
-  });
+  it.each(["adr", "export"])(
+    "%s reports a missing file before contacting the daemon",
+    async (name) => {
+      expect(await run([name, "missing.md"], opts())).toMatchObject({
+        code: EXIT.notFound,
+        stdout: "",
+        stderr: "zenspec: no such file: missing.md\n",
+      });
+      expect((await run([name], opts())).code).toBe(EXIT.usage);
+    },
+  );
 
   it("prints help for one command and for all", async () => {
     const one = await run(["review", "--help"], opts());

@@ -331,6 +331,56 @@ describe("zenspec CLI against the real daemon", { timeout: 30_000 }, () => {
     );
   });
 
+  it("writes an ADR and an HTML export from the review state", async () => {
+    const w = workspace();
+    expect(await w.zenspec("adr", PLAN_PATH)).toMatchObject({ code: 3, stdout: "" });
+
+    const waiting = w.zenspec("review", PLAN_PATH, "--no-open");
+    const doc = await w.reviewer(1);
+    await doc.submit({
+      revision: 1,
+      verdict: "approved",
+      opened: [
+        {
+          kind: "decision",
+          anchor: doc.anchor(PLAN, "Which database engine?", 1),
+          question: "db-engine",
+          choice: { mode: "single", option: "PostgreSQL" },
+          body: "keep SQLite for tests",
+          attachments: [],
+        },
+      ],
+    });
+    await waiting;
+
+    // Numbered after the ADRs already in the repo.
+    fs.mkdirSync(path.join(w.repo, "docs/adr"), { recursive: true });
+    fs.writeFileSync(path.join(w.repo, "docs/adr/0004-earlier.md"), "# Earlier\n");
+    expect(await w.zenspec("adr", PLAN_PATH)).toEqual({
+      code: 0,
+      stdout: "docs/adr/0005-plan.md\n",
+      stderr: "",
+    });
+    const adr = fs.readFileSync(path.join(w.repo, "docs/adr/0005-plan.md"), "utf8");
+    expect(adr).toMatch(/^---\nstatus: accepted\n/);
+    expect(adr).toContain('Chosen option: "PostgreSQL", because keep SQLite for tests');
+
+    expect(await w.zenspec("export", PLAN_PATH)).toEqual({
+      code: 0,
+      stdout: "docs/plans/plan.export.html\n",
+      stderr: "",
+    });
+    const html = fs.readFileSync(path.join(w.repo, "docs/plans/plan.export.html"), "utf8");
+    expect(html).toMatch(/^<!doctype html>/);
+    expect(html).toContain('<section class="zen-trail" id="review-trail">');
+    expect(html).toContain('<article class="zen-thread" id="thread-t1">');
+
+    expect((await w.zenspec("export", PLAN_PATH, "--out", "out/plan.html")).stdout).toBe(
+      "out/plan.html\n",
+    );
+    expect(fs.existsSync(path.join(w.repo, "out/plan.html"))).toBe(true);
+  });
+
   it("fails with a message on stderr and nothing on stdout for unknown files", async () => {
     const w = workspace();
     expect(await w.zenspec("review", "missing.md", "--no-open")).toEqual({

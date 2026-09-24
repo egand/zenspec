@@ -1,6 +1,8 @@
 /** Command dispatch. Returns the exit code; never calls `process.exit`. */
+import { adr } from "./commands/adr.js";
 import { close } from "./commands/close.js";
 import { daemon } from "./commands/daemon.js";
+import { exportDoc } from "./commands/export.js";
 import { gate } from "./commands/gate.js";
 import { help, USAGE } from "./commands/help.js";
 import { inbox, status } from "./commands/inbox.js";
@@ -10,12 +12,6 @@ import { CliError, EXIT, type ExitCode, usageError } from "./errors.js";
 
 type Command = (args: string[], ctx: CliContext) => Promise<ExitCode | void> | ExitCode | void;
 
-const notImplemented =
-  (name: string): Command =>
-  () => {
-    throw usageError(`${name} is not implemented yet`);
-  };
-
 const COMMANDS: Record<string, Command> = {
   review,
   gate,
@@ -24,8 +20,8 @@ const COMMANDS: Record<string, Command> = {
   inbox,
   daemon,
   help,
-  adr: notImplemented("adr"),
-  export: notImplemented("export"),
+  adr,
+  export: exportDoc,
 };
 
 export async function runCli(argv: string[], ctx: CliContext): Promise<ExitCode> {

@@ -36,8 +36,7 @@ Thumbs.db
 *.sln
 *.sw?
 
-# Zen AXI State & Test Artifacts
-.zen-axi/
+# ZenSpec exports & test artifacts
 tests/screenshots/
 *.export.html
 *.tmp

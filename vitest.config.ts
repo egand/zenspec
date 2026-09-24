@@ -11,6 +11,6 @@ export default defineConfig({
   test: {
     include: ["tests/**/*.test.{ts,tsx}"],
     globalSetup: ["tests/global-setup.ts"],
-    exclude: ["legacy/**", "node_modules/**", "dist/**"],
+    exclude: ["node_modules/**", "dist/**"],
   },
 });

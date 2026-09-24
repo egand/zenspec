@@ -1,5 +1,5 @@
-/* Document view. Uses the shell's theme tokens (--bg-*, --text-*, --accent-*); look follows
-   the v1 design in legacy/src/client/styles.css. Everything is scoped under .zen-doc. */
+/* Document view. Uses the shell's theme tokens (--bg-*, --text-*, --accent-*).
+   Everything is scoped under .zen-doc. */
 
 .zen-doc {
   display: flex;

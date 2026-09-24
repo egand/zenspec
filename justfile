@@ -1,11 +1,12 @@
-# Zen AXI Task Runner
+# ZenSpec task runner
 
 # Default recipe lists all commands
 default:
   @just --list
 
 # Run full verification pipeline
-check: typecheck lint format-check test build
+check:
+  npm run check
 
 # Typecheck TypeScript source
 typecheck:

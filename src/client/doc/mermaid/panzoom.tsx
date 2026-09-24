@@ -1,5 +1,5 @@
 /**
- * Zoom and pan for diagrams, used inline and in the lightbox (ported from the legacy client).
+ * Zoom and pan for diagrams, used inline and in the lightbox.
  */
 import type { JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";

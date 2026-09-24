@@ -1,41 +1,61 @@
 # AGENTS.md
 
-Guidance and standards for AI coding agents working on `zenspec`.
+Guidance for agents working on the ZenSpec codebase. The design is in [docs/plans/zenspec-v2-architecture.md](docs/plans/zenspec-v2-architecture.md) (section numbers below refer to it). Read the relevant section before changing behavior.
 
-## Project Overview
+## Commands
 
-`zenspec` is a minimalist, token-efficient Agent Experience Interface (AXI) and browser reviewer for Markdown documentation (`docs/plans/*.md`) and rich HTML artifacts.
-
-## Pinned Runtime & Commands
-
-- **Node.js**: >= 24 LTS (`.node-version`, `mise.toml`)
-- **Package Manager**: `npm` / `pnpm`
-- **Module System**: Pure ESM (`"type": "module"`)
+Node 24 or later, npm, pure ESM.
 
 ```bash
-npm run check           # Run typecheck, lint, format check, tests, and build
-npm test                # Run Vitest test suite
-npm run build           # Compile TypeScript to dist/cli.mjs and dist/client/
-npm run typecheck       # tsc --noEmit
-npm run lint            # ESLint over src, tests, scripts
-npm run format:check    # Prettier validation
+npm ci
+npm run check        # typecheck, lint, format check, build, tests: must exit 0 before you finish
+npm test             # builds first (pretest), then vitest run
+npx vitest run tests/core        # one suite
+npm run build        # dist/cli.mjs (CLI + daemon) and dist/client/ (browser bundle)
+npm run format       # prettier --write .
 ```
 
-## Architectural Invariants
+Run the CLI from a build with `node dist/cli.mjs <command>`. Set `ZENSPEC_HOME` to a temp directory to keep your experiments out of `~/.zenspec`.
 
-1. **Markdown-First**: Markdown files (`.md`) are the primary source of truth for architectural plans, specifications, and notes. They are stored permanently in project repositories (e.g. `docs/plans/`).
-2. **In-Memory Rendering**: The browser client parses Markdown to HTML dynamically in memory with `data-line-start` and `data-line-end` attributes. No intermediate HTML files are written to disk during live review.
-3. **Surgical Line-Based Feedback**: Long-polling (`GET /api/poll`) delivers `{ startLine, endLine, feedback }` payloads so agents can apply direct line replacements (`replace_file_content`) without scanning or rewriting full files.
-4. **Plan & Artifact Approval Gate**: Without clicking the '✅ Approve Plan' button in the browser (or receiving `status: "approved"` / `approved: true`), the agent **MUST NOT START** implementing features, modifying source code, or scaffolding files. The agent must strictly keep updating the spec, answering review questions, and providing further details.
-5. **Dual-Mode**: Raw `.html` artifacts are seamlessly supported in sandboxed iframes for rich UI prototypes.
-6. **Clean Git Source**: Third-party runtime dependencies are managed via `package.json` and bundled into `dist/` during `npm run build`. No raw vendor JavaScript files are committed to Git.
-7. **Live In-Memory Hot Reloading**: File edits on disk automatically trigger instant in-place re-rendering via Server-Sent Events (`ServerEvent.Reload`) while preserving reviewer scroll positions and highlighting modified lines.
-8. **Multi-Document File Explorer**: Projects with multiple `.md` / `.html` files are reviewed in a single browser session with the Left File Explorer.
-9. **Resolved Feedback Tracking**: All addressed reviewer items transition to the Resolved queue section with interactive jump pointers that highlight agent modifications on the document canvas.
-10. **Mandatory Polling**: Polling for human feedback and plan approval is mandatory. Reviews cannot be detached or run without active polling.
+## Layout
 
-## UI Verification & Screenshot Standards
+```text
+src/
+  core/     pure domain: types, events, reducer, parser, anchoring, diff, payload formatter,
+            API contract (api.ts), ADR and HTML export renderers
+  daemon/   HTTP routes, SSE, file watching, event-log storage, knowledge-base index
+  cli/      one module per command in cli/commands/; talks to the daemon over HTTP only
+  client/   Preact + signals browser app (app/ shell, doc/ document view, review/ panel, store/)
+skills/zenspec/SKILL.md      the agent skill (canonical copy)
+plugins/claude-code/         Claude Code plugin: skill copy, hooks, manifest
+plugins/antigravity/         Antigravity plugin: skill copy, rule, example hooks
+scripts/build.ts             esbuild for the CLI bundle and the client bundle
+tests/                       mirrors src/: core, daemon, cli, client, e2e, plugins
+```
 
-- **Visual Quality & Pixel Perfection**: When developing or refactoring UI components (`src/client/`), agents must verify the rendered output in a browser to ensure layout fidelity.
-- **Pull Request Proof**: Visual proof (screenshots or recordings) should be attached as artifacts when submitting pull requests for UI changes or completing visual milestones.
-- **Zero-Bloat Automated Tests**: Automated CI test suites (`tests/e2e-browser.test.ts`) must execute in-memory DOM assertions without saving binary image files to disk. Temporary visual captures are generated on-demand as PR artifacts and kept out of git history.
+**Dependency rule:** `core` ← `daemon`, `cli`, `client`. `core` imports nothing that does I/O (no `node:*`, `fs`, `http`, `chokidar`, `open`, …) and nothing from the other layers. ESLint enforces this. `cli` talks to the daemon only over HTTP; its one import of `daemon` is `zenspec daemon run`, which hosts the daemon in its own process. `client` never imports `daemon` or `cli`: they share types and logic only through `core`.
+
+## Invariants
+
+- **The daemon is the only writer** of `~/.zenspec`. The CLI and the browser go through the HTTP API in `src/core/api.ts`. Never open or write the event log, drafts or attachments from the CLI.
+- **State is derived, never stored.** The event log (`events.jsonl`) is append-only. Current state comes from the pure `replay(events)` in `core/reducer.ts`, which the daemon and the browser share. New behavior means a new event or a reducer rule, not a mutable field. Bump `EVENT_SCHEMA_VERSION` for breaking event changes.
+- **Core is pure.** Same input, same output: no clocks, randomness, I/O or globals. Pass timestamps and file contents in as arguments.
+- **Never write to the reviewed document.** Suggestions reach the agent as exact `old`/`new` strings for it to apply. `adr` and `export` write new files only.
+- **CLI stdout is only the command's output:** the YAML payload for `review`, the written path for `adr` and `export`, and so on. Diagnostics go to stderr with a non-zero exit code (see `cli/errors.ts`). `review` exits 0 for any delivered review; the verdict is on the first payload line.
+- **The payload budget is tested** (§3, `tests/core/budget.test.ts`). Payloads contain only what's new, are plain UTF-8 (never HTML-escaped), and keep `verdict` first. Anything that adds tokens to the payload, the skill or `zenspec help` needs a reason, and the budget tests must still pass.
+- **Resolution is declared, not inferred.** The agent responds (`edited`, `answered`, `declined`) and the reviewer resolves. The "likely addressed" hint is display-only and never changes a status.
+- **The skill stays short** (about 40 lines). Details belong in `zenspec help`. The copies under `plugins/` must match `skills/zenspec/SKILL.md` (a test checks this).
+- The daemon binds to `127.0.0.1` only and rejects cross-origin requests.
+
+## Tests
+
+- Vitest, in `tests/` mirroring `src/`. Name tests after behavior (`"keeps a draft across reloads"`), not after functions.
+- **core:** plain unit tests on hand-built events and documents. No mocks needed: it's pure.
+- **daemon:** real HTTP against an in-process daemon on a temp `ZENSPEC_HOME` and a temp git repo (`tests/daemon/helpers.ts`).
+- **cli:** commands run through `runCli` with a fake context and a stub daemon (`tests/cli/harness.ts`).
+- **e2e:** `tests/e2e/protocol.test.ts` spawns the built `dist/cli.mjs` as the agent, lets it auto-start the real daemon, and acts as the reviewer over HTTP. It checks that no daemon process is left behind.
+- **client:** components and stores under `happy-dom` (`// @vitest-environment happy-dom`). No real browser is needed, and none is used in CI.
+- No `setTimeout` sleeps to wait for things: use `vi.waitFor` or an explicit signal. Use temp directories and never touch the real `~/.zenspec`.
+- `tests/global-setup.ts` rebuilds `dist/` when sources are newer, so e2e tests never run a stale build.
+
+For UI changes, also check the result in a real browser (`node dist/cli.mjs review <file>` with a temp `ZENSPEC_HOME`). Keep screenshots out of git.

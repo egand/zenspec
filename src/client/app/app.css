@@ -1,4 +1,4 @@
-/* Shell and review panel. Tokens and look follow the v1 design (legacy/src/client/styles.css). */
+/* Shell and review panel: theme tokens and layout. */
 
 :root {
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;

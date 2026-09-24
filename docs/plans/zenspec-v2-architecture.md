@@ -1,6 +1,6 @@
 ---
 title: "Plan: ZenSpec v2 Architecture — Threads, Revisions, and a One-Command Agent Protocol"
-status: proposed
+status: implemented
 author: Claude
 date: 2026-09-24
 tags: [zenspec, architecture, v2, protocol, cost, rewrite]

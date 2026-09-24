@@ -1,7 +1,7 @@
 {
   "name": "zenspec",
   "version": "0.1.0",
-  "description": "Minimalist, token-efficient Agent Experience Interface (AXI) and browser reviewer for Markdown & HTML artifacts",
+  "description": "Human review for agent-written plans: a one-command CLI loop, a browser reviewer with threads and verdicts, and an approval gate.",
   "type": "module",
   "bin": {
     "zenspec": "dist/cli.mjs"
@@ -31,24 +31,20 @@
     "node": ">=24"
   },
   "keywords": [
-    "axi",
     "agent",
     "cli",
     "markdown",
-    "html",
     "review",
-    "collaboration"
+    "plan",
+    "adr",
+    "claude-code"
   ],
   "license": "MIT",
   "dependencies": {
-    "@preact/signals": "^2.11.2",
     "chokidar": "^4.0.3",
     "katex": "^0.16.21",
     "mdast-util-to-string": "^4.0.0",
-    "mermaid": "^11.4.1",
     "open": "^10.1.0",
-    "picocolors": "^1.1.1",
-    "preact": "^10.29.8",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
@@ -58,6 +54,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",
+    "@preact/signals": "^2.11.2",
     "@types/katex": "^0.16.7",
     "@types/mdast": "^4.0.4",
     "@types/node": "^24.0.0",
@@ -65,8 +62,9 @@
     "eslint": "^9.21.0",
     "eslint-config-prettier": "^10.0.1",
     "happy-dom": "^20.14.5",
+    "mermaid": "^11.4.1",
+    "preact": "^10.29.8",
     "prettier": "^3.5.2",
-    "puppeteer": "^25.9.0",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.25.0",

@@ -42,12 +42,18 @@ Without flags: every document across repos, one line each.
 run     run the daemon in the foreground (started automatically by other commands)
 stop    stop the running daemon
 status  print pid, port, and version; exit 4 when not running`,
-  adr: `zenspec adr <file>
+  adr: `zenspec adr <file> [--out <path>]
 
-Generate an ADR from decision threads. Not implemented yet (exit 2).`,
-  export: `zenspec export <file>
+Write a MADR-style Architecture Decision Record from the document's decision threads (the
+reviewer's answers to [!QUESTION] blocks, their notes, and the agent's responses). Default
+output: docs/adr/NNNN-<slug>.md in the repo, numbered after the existing ADRs. Prints the
+written path; exit 3 when the document has no decision threads.`,
+  export: `zenspec export <file> [--out <path>]
 
-Standalone HTML export. Not implemented yet (exit 2).`,
+Write a standalone HTML page: the document plus its review trail (decisions, threads with
+their resolutions, history). CSS and math are inline; Mermaid diagrams load mermaid from
+cdn.jsdelivr.net when opened. Default output: <file>.export.html next to the file. Prints
+the written path.`,
   help: `zenspec help [<command>]
 
 Show this reference, or one command's.`,
