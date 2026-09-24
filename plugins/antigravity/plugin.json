@@ -1,0 +1,5 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "zenspec",
+  "description": "Human review of plans before implementation: the zenspec skill and an approval rule."
+}

@@ -1,0 +1,29 @@
+{
+  "description": "ZenSpec: block code edits while a plan in this repo awaits approval; deliver reviewer comments made during implementation.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/zenspec-hook.mjs\" pre",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/zenspec-hook.mjs\" post",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

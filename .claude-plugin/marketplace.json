@@ -1,0 +1,11 @@
+{
+  "name": "zenspec",
+  "owner": { "name": "Enrico Gandaglia" },
+  "plugins": [
+    {
+      "name": "zenspec",
+      "source": "./plugins/claude-code",
+      "description": "Human review of plans before implementation, with an approval gate on edits."
+    }
+  ]
+}

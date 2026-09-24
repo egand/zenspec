@@ -1,0 +1,8 @@
+{
+  "name": "zenspec",
+  "displayName": "ZenSpec",
+  "version": "0.1.0",
+  "description": "Human review of plans before implementation: the zenspec skill, an approval gate on edits, and reviewer comments delivered during implementation.",
+  "license": "MIT",
+  "keywords": ["review", "plan", "spec", "approval", "gate"]
+}

@@ -9,7 +9,7 @@
   "files": [
     "dist",
     "skills/zenspec",
-    "plugins/claude-code",
+    "plugins",
     "LICENSE",
     "README.md"
   ],

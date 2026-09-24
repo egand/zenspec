@@ -1,0 +1,27 @@
+{
+  "zenspec": {
+    "PreToolUse": [
+      {
+        "matcher": "write_to_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node <ZENSPEC_DIR>/plugins/claude-code/hooks/zenspec-hook.mjs antigravity-pre",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostInvocation": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node <ZENSPEC_DIR>/plugins/claude-code/hooks/zenspec-hook.mjs antigravity-invocation",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
