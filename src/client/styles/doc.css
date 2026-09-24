@@ -1,0 +1,1222 @@
+/* Document view. Uses the shell's theme tokens (--bg-*, --text-*, --accent-*); look follows
+   the v1 design in legacy/src/client/styles.css. Everything is scoped under .zen-doc. */
+
+.zen-doc {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  --hl-open: rgba(210, 153, 34, 0.18);
+  --hl-addressed: rgba(59, 130, 246, 0.16);
+  --hl-declined: rgba(139, 148, 158, 0.16);
+  --hl-resolved: rgba(46, 160, 67, 0.1);
+  --toc-width: 240px;
+}
+
+/* ---------------------------------------------------------------- outline */
+
+.zen-doc-toc {
+  width: var(--toc-width);
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.zen-doc.is-focus .zen-doc-toc {
+  display: none;
+}
+
+.zen-toc {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.zen-toc-header {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.zen-toc-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.zen-toc-heading h4 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.zen-read-time {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.zen-steps-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.zen-steps-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.zen-steps-fill {
+  height: 100%;
+  background: var(--accent-green-hover, #2ea043);
+  transition: width 0.3s ease;
+}
+
+.zen-steps-count {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.zen-toc-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.zen-toc-item {
+  display: block;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    background 0.1s ease,
+    color 0.1s ease;
+}
+
+.zen-toc-item:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.zen-toc-item.is-active {
+  background: var(--node-highlight);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.zen-toc-depth-1 {
+  font-weight: 600;
+}
+.zen-toc-depth-2 {
+  padding-left: 1.1rem;
+}
+.zen-toc-depth-3 {
+  padding-left: 1.7rem;
+  font-size: 0.78rem;
+}
+
+.zen-toc-empty {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 1.5rem 0.5rem;
+}
+
+/* ---------------------------------------------------------------- canvas */
+
+.zen-doc-main {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+}
+
+.zen-doc-canvas {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 2.5rem 3rem 6rem 3.5rem;
+}
+
+.zen-doc.is-focus .zen-doc-canvas {
+  padding: 3rem 2rem 8rem;
+}
+
+.zen-reading-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 3px;
+  width: 0;
+  background: linear-gradient(90deg, var(--accent-primary), #60a5fa);
+  z-index: 20;
+  pointer-events: none;
+  transition: width 0.06s ease-out;
+}
+
+.zen-doc-body {
+  position: relative;
+  max-width: 880px;
+  margin: 0 auto;
+  font-size: 1rem;
+}
+
+.zen-doc.is-focus .zen-doc-body {
+  max-width: 900px;
+}
+
+.zen-focus-exit {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  padding: 0.5rem 1.1rem;
+  border-radius: 9999px;
+  font: 500 0.85rem var(--font-sans);
+  cursor: pointer;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.zen-focus-exit:hover {
+  border-color: var(--accent-primary);
+}
+
+.zen-doc kbd {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  color: var(--accent-primary);
+}
+
+/* ---------------------------------------------------------------- blocks */
+
+.zen-block {
+  position: relative;
+  border-radius: 4px;
+}
+
+.zen-gutter {
+  position: absolute;
+  left: -14px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    background 0.12s ease;
+}
+
+.zen-block:hover > .zen-gutter {
+  opacity: 1;
+  background: var(--border-color);
+}
+
+.zen-block > .zen-gutter:hover,
+.zen-block > .zen-gutter:focus-visible {
+  opacity: 1;
+  background: var(--accent-primary);
+}
+
+.zen-doc-body :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--text-primary);
+  margin: 2rem 0 0.8rem;
+  font-weight: 600;
+  line-height: 1.3;
+  scroll-margin-top: 1.5rem;
+}
+
+.zen-doc-body h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.zen-doc-body h2 {
+  font-size: 1.45rem;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0.4rem;
+}
+
+.zen-doc-body h3 {
+  font-size: 1.2rem;
+}
+
+.zen-doc-body :is(p, ul, ol, blockquote, pre, hr) {
+  margin: 0 0 1.25rem;
+}
+
+.zen-doc-body :is(ul, ol) {
+  padding-left: 1.5rem;
+}
+
+.zen-doc-body :is(li > ul, li > ol) {
+  margin: 0.35rem 0 0;
+}
+
+.zen-doc-body li {
+  margin-bottom: 0.35rem;
+}
+
+.zen-doc-body a {
+  color: var(--accent-primary);
+  text-decoration: none;
+}
+
+.zen-doc-body a:hover {
+  text-decoration: underline;
+}
+
+.zen-doc-body img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.zen-doc-body hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+}
+
+.zen-doc-body blockquote {
+  border-left: 3px solid var(--border-color);
+  padding: 0.1rem 0 0.1rem 1rem;
+  color: var(--text-secondary);
+}
+
+.zen-doc-body blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.zen-doc-body code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.zen-raw-html {
+  color: var(--text-muted);
+}
+
+.zen-footnote {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.zen-footnote > p {
+  display: inline;
+}
+
+.zen-footnote-ref a {
+  font-weight: 600;
+}
+
+/* Task lists / living-plan steps (read-only: the agent ticks them in the file). */
+
+.zen-doc-body ul.zen-task-list,
+.zen-doc-body ol.zen-task-list {
+  list-style: none;
+  padding-left: 0.25rem;
+}
+
+.zen-doc-body li.zen-task {
+  display: block;
+  position: relative;
+  padding-left: 1.7rem;
+  border-radius: 4px;
+}
+
+.zen-task-box {
+  position: absolute;
+  left: 0.2rem;
+  top: 0.3rem;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent-green-hover, #2ea043);
+  cursor: help;
+}
+
+.zen-task-box:disabled {
+  opacity: 1;
+}
+
+.zen-task-done > :not(ul, ol) {
+  color: var(--text-secondary);
+}
+
+li.zen-step-current {
+  background: var(--node-hover);
+  box-shadow: inset 2px 0 0 var(--accent-primary);
+}
+
+/* Code */
+
+.zen-code {
+  margin: 1.5rem 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.zen-code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0.85rem;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  user-select: none;
+}
+
+.zen-code-lang {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.zen-code-copy {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.zen-code-copy:hover {
+  background: var(--accent-primary);
+  color: #fff;
+  border-color: var(--accent-primary);
+}
+
+.zen-doc-body .zen-code pre {
+  margin: 0;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.zen-doc-body .zen-code code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* Tables */
+
+.zen-table-wrapper {
+  overflow-x: auto;
+  margin: 1.5rem 0;
+}
+
+.zen-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.zen-table :is(th, td) {
+  border: 1px solid var(--border-color);
+  padding: 0.6rem 0.85rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.zen-table th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+}
+
+.zen-table tbody tr:nth-child(even) {
+  background: var(--bg-secondary);
+}
+
+/* Math */
+
+.zen-math {
+  margin: 1.5rem 0;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.zen-math .katex-display {
+  margin: 0;
+}
+
+/* Callouts (GitHub alerts) */
+
+.zen-callout {
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--accent-primary);
+  background: var(--bg-secondary);
+  padding: 0.9rem 1.2rem;
+  border-radius: 8px;
+  margin: 1.5rem 0;
+}
+
+.zen-callout > :last-child {
+  margin-bottom: 0;
+}
+
+.zen-callout-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.4rem;
+  color: var(--accent-primary);
+}
+
+.zen-callout-tip {
+  border-left-color: var(--accent-green-hover, #2ea043);
+}
+.zen-callout-tip .zen-callout-title {
+  color: var(--accent-green-hover, #2ea043);
+}
+.zen-callout-important {
+  border-left-color: var(--accent-purple);
+}
+.zen-callout-important .zen-callout-title {
+  color: var(--accent-purple);
+}
+.zen-callout-warning {
+  border-left-color: var(--accent-yellow);
+}
+.zen-callout-warning .zen-callout-title {
+  color: var(--accent-yellow);
+}
+.zen-callout-caution {
+  border-left-color: var(--accent-red);
+}
+.zen-callout-caution .zen-callout-title {
+  color: var(--accent-red);
+}
+
+/* Frontmatter */
+
+.zen-frontmatter {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.8rem 1.1rem;
+  margin-bottom: 2rem;
+}
+
+.zen-frontmatter-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent-primary);
+  margin-bottom: 0.5rem;
+}
+
+.zen-frontmatter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.35rem 1rem;
+  margin: 0;
+}
+
+.zen-frontmatter-item {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  min-width: 0;
+}
+
+.zen-frontmatter-item dt {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.zen-frontmatter-item dd {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.zen-fm-tag {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  padding: 0 0.35rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  color: var(--accent-primary);
+}
+
+/* ---------------------------------------------------------------- questions */
+
+.zen-question {
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--accent-yellow);
+  background: var(--bg-secondary);
+  padding: 1.1rem 1.4rem;
+  border-radius: 8px;
+  margin: 1.5rem 0;
+}
+
+.zen-question.is-submitted {
+  border-left-color: var(--accent-green-hover, #2ea043);
+}
+
+.zen-question-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.zen-question-title {
+  font-weight: 600;
+  font-size: 1.05rem;
+  margin-right: auto;
+}
+
+.zen-question-mode,
+.zen-question-draft {
+  font-size: 0.7rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 0.05rem 0.45rem;
+  border-radius: 4px;
+}
+
+.zen-question-draft {
+  color: var(--accent-yellow);
+}
+
+.zen-question-answered {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent-green-hover, #2ea043);
+  border: 1px solid currentColor;
+  padding: 0.05rem 0.45rem;
+  border-radius: 4px;
+}
+
+.zen-question-desc {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+}
+
+.zen-question-desc > :last-child {
+  margin-bottom: 0.5rem;
+}
+
+.zen-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.9rem 0 0.4rem;
+}
+
+.zen-option {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.zen-option:hover {
+  border-color: var(--accent-primary);
+}
+
+.zen-option.is-recommended {
+  border-style: dashed;
+  border-color: var(--accent-yellow);
+}
+
+.zen-option.is-selected {
+  border-style: solid;
+  border-color: var(--accent-primary);
+  background: var(--node-highlight);
+}
+
+.zen-option input[type="radio"],
+.zen-option input[type="checkbox"] {
+  accent-color: var(--accent-primary);
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.zen-option-text {
+  flex: 1;
+  font-size: 0.95rem;
+}
+
+.zen-option-rec {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent-yellow);
+}
+
+.zen-option-write-in {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.92rem;
+  outline: none;
+}
+
+.zen-option-write-in::placeholder {
+  color: var(--text-muted);
+}
+
+.zen-rating {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.9rem 0 0.4rem;
+}
+
+.zen-rating-btn {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 0.55rem 0.4rem;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  font: inherit;
+}
+
+.zen-rating-btn:hover:not(:disabled) {
+  border-color: var(--accent-yellow);
+}
+
+.zen-rating-btn.is-recommended {
+  border-style: dashed;
+  border-color: var(--accent-yellow);
+}
+
+.zen-rating-btn.is-selected {
+  border-style: solid;
+  border-color: var(--accent-yellow);
+  background: rgba(210, 153, 34, 0.15);
+  font-weight: 700;
+}
+
+.zen-rating-num {
+  font-weight: 600;
+}
+
+.zen-rating-label {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.zen-question.is-locked :is(.zen-option, .zen-rating-btn) {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.zen-question.is-locked .zen-option.is-selected,
+.zen-question.is-locked .zen-rating-btn.is-selected {
+  opacity: 1;
+}
+
+.zen-question-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 1.4rem;
+}
+
+.zen-question-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.zen-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-primary);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.zen-link-btn:hover {
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------- KB terms */
+
+.zen-kb-term {
+  position: relative;
+  text-decoration: underline dotted var(--accent-primary);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+.zen-kb-card {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 60;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.7rem 0.85rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--text-primary);
+  cursor: auto;
+  text-decoration: none;
+  white-space: normal;
+}
+
+.zen-kb-card-title {
+  font-weight: 600;
+}
+
+.zen-kb-card-summary {
+  color: var(--text-secondary);
+}
+
+.zen-kb-card-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.zen-kb-card-actions button {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  border-radius: 4px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------- mermaid */
+
+.zen-mermaid {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin: 1.75rem 0;
+  overflow: hidden;
+}
+
+.zen-diagram-toolbar,
+.zen-lightbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  user-select: none;
+}
+
+.zen-diagram-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
+.zen-diagram-btn,
+.zen-diagram-badge {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  font: 600 0.82rem var(--font-sans);
+  min-width: 26px;
+  height: 26px;
+  cursor: pointer;
+}
+
+.zen-diagram-badge {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  min-width: 46px;
+  color: var(--text-primary);
+}
+
+.zen-diagram-btn:hover,
+.zen-diagram-badge:hover {
+  color: var(--text-primary);
+  background: var(--border-color);
+}
+
+.zen-diagram-comment {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 0.25rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.zen-diagram-comment:hover {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #fff;
+}
+
+.zen-diagram-viewport,
+.zen-lightbox-viewport {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.zen-diagram-viewport {
+  min-height: 120px;
+}
+
+.zen-diagram-viewport.is-dragging,
+.zen-lightbox-viewport.is-dragging {
+  cursor: grabbing;
+}
+
+.zen-diagram-canvas {
+  transform-origin: center center;
+  transition: transform 0.15s ease-out;
+  flex-shrink: 0;
+}
+
+.zen-diagram-canvas svg {
+  display: block;
+  max-width: none;
+}
+
+.zen-diagram-loading,
+.zen-diagram-error {
+  padding: 1.25rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.zen-doc-body .zen-diagram-error {
+  margin: 0;
+  color: var(--accent-red);
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+}
+
+.zen-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(13, 17, 23, 0.88);
+  backdrop-filter: blur(12px);
+}
+
+.zen-lightbox-panel {
+  width: 100%;
+  height: 100%;
+  max-width: 1600px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+}
+
+.zen-lightbox-title {
+  font-weight: 600;
+  margin-right: auto;
+}
+
+.zen-lightbox-viewport {
+  flex: 1;
+  background: radial-gradient(var(--border-subtle) 1.5px, transparent 1.5px);
+  background-size: 24px 24px;
+}
+
+/* ---------------------------------------------------------------- overlay */
+
+.zen-doc-deco {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.zen-doc-deco-under {
+  z-index: 0;
+}
+
+.zen-doc-deco-pins {
+  z-index: 5;
+}
+
+.zen-doc-deco > * {
+  position: absolute;
+}
+
+.zen-hl {
+  margin: -2px -6px;
+  padding: 2px 6px;
+  box-sizing: content-box;
+  border-radius: 4px;
+  background: var(--hl-open);
+  transition: background 0.2s ease;
+}
+
+.zen-hl-addressed {
+  background: var(--hl-addressed);
+}
+.zen-hl-declined {
+  background: var(--hl-declined);
+}
+.zen-hl-resolved {
+  background: var(--hl-resolved);
+}
+.zen-hl-outdated {
+  background: none;
+  outline: 1px dashed var(--text-muted);
+}
+
+.zen-hl.is-active {
+  outline: 2px solid var(--accent-primary);
+}
+
+.zen-pin {
+  pointer-events: auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-primary);
+  background: var(--accent-yellow);
+  color: #fff;
+  font: 700 0.66rem var(--font-sans);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.zen-pin-suggestion {
+  background: var(--accent-purple);
+}
+.zen-pin-decision {
+  background: var(--accent-green-hover, #2ea043);
+}
+.zen-pin-explain {
+  background: #0ea5a5;
+}
+.zen-pin-resolved,
+.zen-pin-declined,
+.zen-pin-outdated {
+  filter: grayscale(0.8);
+  opacity: 0.7;
+}
+.zen-pin.is-active {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+.zen-diff-mark {
+  margin-left: -10px;
+  padding-left: 10px;
+  box-sizing: content-box;
+  border-left: 3px solid var(--diff-added-border);
+  background: var(--diff-added-bg);
+  border-radius: 0 4px 4px 0;
+}
+
+.zen-diff-modified {
+  border-left-color: var(--diff-modified-border);
+  background: var(--diff-modified-bg);
+}
+
+.zen-pulse {
+  margin: -4px -8px;
+  padding: 4px 8px;
+  box-sizing: content-box;
+  border-radius: 6px;
+  animation: zen-doc-pulse 1.6s ease-out forwards;
+}
+
+@keyframes zen-doc-pulse {
+  0% {
+    background: rgba(59, 130, 246, 0.35);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
+  }
+  60% {
+    box-shadow: 0 0 0 8px rgba(59, 130, 246, 0);
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
+/* ---------------------------------------------------------------- selection toolbar */
+
+.zen-sel-toolbar {
+  position: absolute;
+  z-index: 50;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 9999px;
+  padding: 0.2rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+
+.zen-sel-toolbar button {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font: 500 0.82rem var(--font-sans);
+  padding: 0.3rem 0.75rem;
+  border-radius: 9999px;
+  cursor: pointer;
+}
+
+.zen-sel-toolbar button:hover {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.zen-sel-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border-color);
+}
+
+/* ---------------------------------------------------------------- HTML mockups */
+
+.zen-doc-html {
+  flex-direction: column;
+  padding: 1rem;
+  gap: 0.5rem;
+}
+
+.zen-html-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.zen-html-frame iframe {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.zen-html-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 900px) {
+  .zen-doc-toc {
+    display: none;
+  }
+  .zen-doc-canvas {
+    padding: 1.5rem 1.25rem 4rem 2rem;
+  }
+}
