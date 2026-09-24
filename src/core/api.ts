@@ -14,11 +14,11 @@ import type {
   DocumentRef,
   Draft,
   IsoTime,
-  NewThread,
   Response,
   Review,
   Revision,
   ThreadId,
+  ThreadSpec,
   Verdict,
 } from "./types.js";
 
@@ -72,6 +72,7 @@ export function fillPath(template: string, params: Record<string, string | numbe
 
 export type ApiErrorCode =
   | "bad_request" // 400
+  | "forbidden" // 403: cross-origin request or foreign Host header
   | "not_found" // 404: unknown document, revision, thread, or attachment
   | "conflict" // 409: e.g. submitting against a stale revision, or a closed session
   | "too_large" // 413
@@ -178,11 +179,17 @@ export interface DraftResponse {
  * Submit the pending review. The daemon assigns thread ids to `opened`, appends
  * `review_submitted`, clears the draft, and wakes every waiter.
  */
+/**
+ * A thread as the browser submits it: a `NewThread` without the daemon-assigned `id`.
+ * (`Omit<NewThread, "id">` would collapse the union and drop the kind-specific fields.)
+ */
+export type NewThreadRequest = ThreadSpec & { body: string; attachments: AttachmentRef[] };
+
 export interface SubmitReviewRequest {
   revision: number;
   verdict: Verdict;
   summary: string;
-  opened: Omit<NewThread, "id">[];
+  opened: NewThreadRequest[];
   reopened: { id: ThreadId; body: string; attachments: AttachmentRef[] }[];
   resolved: ThreadId[];
 }
@@ -203,9 +210,10 @@ export type ThreadActionRequest =
 export type ThreadActionResponse = DraftResponse;
 
 /**
- * Body: raw image bytes with an `image/*` Content-Type. The daemon downscales to at most
- * 1568 px on the long edge and stores it content-addressed as `attachments/<id>.<ext>`, where
- * the id is the first 12 hex characters of the sha256 of the stored bytes.
+ * Body: raw PNG, JPEG or WebP bytes (at most 10 MB), already downscaled by the browser to at
+ * most 1568 px on the long edge. The daemon validates the format, reads the dimensions, and
+ * stores it content-addressed as `attachments/<id>.<ext>`, where the id is the first 12 hex
+ * characters of the sha256 of the bytes.
  */
 export type UploadAttachmentResponse = AttachmentRef;
 

@@ -1,0 +1,83 @@
+/**
+ * The `~/.zenspec` directory (plan §5, §13): location, legacy v1 cleanup, and `daemon.json`.
+ */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { DaemonInfo, HealthResponse } from "../core/api.js";
+import { ROUTES } from "../core/api.js";
+
+export function resolveHome(home?: string): string {
+  return path.resolve(home ?? process.env.ZENSPEC_HOME ?? path.join(os.homedir(), ".zenspec"));
+}
+
+/** Expands a leading `~/` to the user's home directory. */
+export function expandHome(p: string): string {
+  return p === "~" || p.startsWith("~/") ? path.join(os.homedir(), p.slice(1)) : p;
+}
+
+/** Shortens an absolute path under the user's home to `~/...` (fewer tokens in payloads). */
+export function tildify(p: string): string {
+  const home = os.homedir();
+  return p === home || p.startsWith(home + path.sep) ? `~${p.slice(home.length)}` : p;
+}
+
+/** v1 kept `sessions/` and `state.json` here; v2 does not read them. */
+export function removeLegacyState(home: string): void {
+  fs.rmSync(path.join(home, "sessions"), { recursive: true, force: true });
+  fs.rmSync(path.join(home, "state.json"), { force: true });
+}
+
+export const daemonFile = (home: string) => path.join(home, "daemon.json");
+
+export function readDaemonInfo(home: string): DaemonInfo | null {
+  try {
+    const info = JSON.parse(fs.readFileSync(daemonFile(home), "utf8")) as DaemonInfo;
+    return typeof info.pid === "number" && typeof info.port === "number" ? info : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeDaemonInfo(home: string, info: DaemonInfo): void {
+  writeFileAtomic(daemonFile(home), JSON.stringify(info) + "\n");
+}
+
+/** Removes `daemon.json` only if it still describes `pid` (a newer daemon may own it). */
+export function clearDaemonInfo(home: string, pid: number): void {
+  if (readDaemonInfo(home)?.pid === pid) fs.rmSync(daemonFile(home), { force: true });
+}
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * The recorded daemon, if its process is alive and answers `/api/health` with the same pid
+ * (a reused pid after a crash does not count).
+ */
+export async function liveDaemon(home: string): Promise<DaemonInfo | null> {
+  const info = readDaemonInfo(home);
+  if (!info || !pidAlive(info.pid)) return null;
+  try {
+    const res = await fetch(`http://127.0.0.1:${info.port}${ROUTES.health}`, {
+      signal: AbortSignal.timeout(1000),
+    });
+    const health = (await res.json()) as HealthResponse;
+    return health.pid === info.pid ? info : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write-to-temp then rename, so readers never see a partial file. */
+export function writeFileAtomic(file: string, data: string | Buffer): void {
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  fs.writeFileSync(tmp, data);
+  fs.renameSync(tmp, file);
+}
