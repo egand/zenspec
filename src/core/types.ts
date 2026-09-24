@@ -7,6 +7,8 @@
  * - Revision and review numbers are 1-based and assigned by the daemon.
  */
 
+import type { RootContent } from "mdast";
+
 /** Who produced an event or message. Free-form names are allowed for a future team mode. */
 export type Author = "agent" | "reviewer" | "daemon" | (string & {});
 
@@ -25,7 +27,10 @@ export type BlockId = string;
 export type QuestionId = string;
 /** Derived by the parser from task-list items (§10). */
 export type StepId = string;
-/** Lowercase hex sha256 of the stored (downscaled) image bytes (§9.2). */
+/**
+ * First 12 lowercase hex characters of the sha256 of the stored (downscaled) image bytes (§9.2).
+ * The file is content-addressed as `attachments/<id>.<ext>`.
+ */
 export type AttachmentId = string;
 
 // ---------------------------------------------------------------------------
@@ -125,6 +130,8 @@ export interface Placement {
   matched?: string;
   /** Similarity for strategy 4, in [0, 1]. */
   score?: number;
+  /** HTML anchors: CSS path of the element the anchor landed on (strategies 2 and 3). */
+  cssPath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +247,29 @@ export interface ParsedDocument {
   questions: Question[];
   steps: Step[];
 }
+
+/** A block plus its mdast node, so the client can render it without reparsing. */
+export interface ParsedBlock extends Block {
+  node: RootContent;
+}
+
+/** What `parseDocument` returns: a `ParsedDocument` whose blocks carry their mdast nodes. */
+export interface ParsedMarkdown extends ParsedDocument {
+  blocks: ParsedBlock[];
+}
+
+export interface StepToggle {
+  step: StepId;
+  checked: boolean;
+}
+
+/**
+ * How a document changed between two versions (§10):
+ * `checkbox-only` means only plan-step checkboxes flipped (progress, `step_checked`);
+ * `content` means anything else changed (drift after approval, `plan_drifted`).
+ */
+export type DocumentChange =
+  { kind: "none" } | { kind: "checkbox-only"; steps: StepToggle[] } | { kind: "content" };
 
 // ---------------------------------------------------------------------------
 // Draft: the reviewer's pending review, stored server-side (§9, §9.1)

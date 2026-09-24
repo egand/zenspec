@@ -70,7 +70,7 @@ Output tokens (what the agent writes) are the most expensive; standing context (
 
 - Payload overhead of ≤ 80 tokens per review plus ≤ 25 tokens per thread, excluding human-written text and quotes.
 - Quotes truncated to 120 characters.
-- Images are never inlined in the payload: only a path plus dimensions (about 15 tokens). They're stored downscaled to at most 1568 px on the long edge, so opening one costs at most about 1.6k tokens for Claude models.
+- Images are never inlined in the payload: only a path plus dimensions (about 40–45 tokens, mostly the absolute path). They're stored downscaled to at most 1568 px on the long edge, so opening one costs at most about 1.6k tokens for Claude models.
 - Exactly **one** CLI invocation per review round in the scripted-agent test.
 - The payload never contains the document, history, or resolved threads.
 
@@ -157,7 +157,7 @@ The daemon is the **only writer**. The CLI and the browser talk to it over HTTP.
       events.jsonl                    # append-only, one event per line
       revisions/<n>.md                # revision snapshots
       draft.json                      # reviewer's unsubmitted pending review
-      attachments/<sha256>.png        # pasted images, content-addressed
+      attachments/<12-hex>.png        # pasted images, content-addressed (sha256 prefix)
 ```
 
 - `<repo-id>` is the repo folder name plus a short hash of the git top-level path (e.g. `zenspec-3f9a1c`). Outside git, the document's directory is used instead.
@@ -395,7 +395,7 @@ Some feedback is easier to show than to describe (a rendering bug, a sketch, a r
 
 - **Paste** (`Cmd+V`) or **drag and drop** an image into any comment, suggestion note, reply, or general thread. Thumbnails appear in the draft and in the thread, and clicking one opens it in the existing lightbox.
 - The browser sends the image to the daemon, which **downscales** it to at most 1568 px on the long edge and stores it content-addressed under `attachments/` (§5), never in the repo.
-- The agent gets the file path and dimensions in the payload (§8.3) and opens the image only when the text isn't enough. That keeps a round with a screenshot at about 15 extra tokens unless the image is actually needed.
+- The agent gets the file path and dimensions in the payload (§8.3) and opens the image only when the text isn't enough. That keeps a round with a screenshot at about 40–45 extra tokens (mostly the path) unless the image is actually needed.
 - **Inbox**: one tab lists all open reviews across repos served by the daemon.
 
 ## 10. Living Plans

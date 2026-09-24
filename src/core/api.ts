@@ -204,7 +204,8 @@ export type ThreadActionResponse = DraftResponse;
 
 /**
  * Body: raw image bytes with an `image/*` Content-Type. The daemon downscales to at most
- * 1568 px on the long edge and stores it content-addressed.
+ * 1568 px on the long edge and stores it content-addressed as `attachments/<id>.<ext>`, where
+ * the id is the first 12 hex characters of the sha256 of the stored bytes.
  */
 export type UploadAttachmentResponse = AttachmentRef;
 
