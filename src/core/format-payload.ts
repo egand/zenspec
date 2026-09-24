@@ -22,6 +22,7 @@ import type {
   Review,
   Thread,
   ThreadId,
+  ThreadStatus,
 } from "./types.js";
 
 export const QUOTE_MAX_CHARS = 120;
@@ -36,8 +37,8 @@ export interface PayloadInput {
   /** The review being delivered. Its `revision` is the reviewed revision. */
   review: Review;
   /**
-   * Threads to deliver: opened, reopened or replied to in `review`, plus, for `approved`, threads still
-   * open. Resolved threads are dropped defensively.
+   * Threads to deliver: opened or reopened in `review`, replied to in `review` (whatever their
+   * status), plus, for `approved`, threads still open. Resolved threads are dropped defensively.
    */
   threads: Thread[];
   /** Placements against the file on disk at delivery time; `at` is omitted when missing. */
@@ -86,18 +87,19 @@ export function buildClosedPayload(by: Author, reason?: string): ReviewPayload {
 
 function buildThread(thread: Thread, input: PayloadInput): PayloadThread {
   const reopened = input.review.reopened.includes(thread.id);
-  const replied = input.review.replied.includes(thread.id);
+  const replied = !reopened && input.review.replied.includes(thread.id);
   const message = deliveredMessage(thread, reopened || replied);
   const body = message?.body || undefined;
   const at = lineRef(input.placements[thread.id]);
   const images = message?.attachments.map((a) => image(a, input.attachmentPath));
+  const openOnApproval = input.review.verdict === "approved" && thread.status === "open";
   const base = {
     id: thread.id,
     ...(reopened && { reopened: true as const }),
-    ...(input.review.verdict === "approved" &&
-      thread.status === "open" && {
-        status: "open" as const,
-      }),
+    ...(replied && { replied: true as const }),
+    ...((replied || openOnApproval) && {
+      status: thread.status as Exclude<ThreadStatus, "resolved">,
+    }),
   };
   const tail = images?.length ? { images } : {};
 
@@ -146,8 +148,7 @@ function buildThread(thread: Thread, input: PayloadInput): PayloadThread {
 
 /**
  * The reviewer message this delivery is about: the latest reopen or reply when the review
- * reopened or replied to the thread, otherwise the opening comment. A reply reuses the
- * thread's entry (same keys, no `reopened`), so it costs no extra overhead.
+ * reopened or replied to the thread, otherwise the opening comment.
  */
 function deliveredMessage(thread: Thread, followUp: boolean): Message | undefined {
   if (!followUp) return thread.messages[0];
@@ -214,7 +215,7 @@ function nextHint(
   const cmd = reviewCommand(docPath);
   const respond = `${cmd} -r <id>:<edited|answered|declined>[:note]`;
   if (verdict !== "approved") return hasThreads ? respond : cmd;
-  if (phase === "done") return "done; no further action";
+  if (phase === "done") return hasThreads ? respond : "done; no further action";
   const steps = `implement, ticking each step's checkbox; then ${cmd} -m implemented`;
   return hasThreads ? `${steps} -r <id>:<action>[:note]` : steps;
 }

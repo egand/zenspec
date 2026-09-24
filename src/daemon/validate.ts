@@ -2,13 +2,8 @@
  * Shape checks for request bodies. They reject what would corrupt the log, not every
  * possible inconsistency: the reducer already ignores transitions that do not apply.
  */
-import type {
-  CloseRequest,
-  PublishRequest,
-  SubmitReviewRequest,
-  ThreadActionRequest,
-} from "../core/api.js";
-import type { AttachmentRef, Draft, Response, Verdict } from "../core/types.js";
+import type { CloseRequest, PublishRequest, SubmitReviewRequest } from "../core/api.js";
+import type { Draft, Response, Verdict } from "../core/types.js";
 import { badRequest } from "./http.js";
 
 type Json = Record<string, unknown>;
@@ -34,8 +29,6 @@ function arrayOf(check: (v: unknown) => boolean) {
 }
 
 const isAttachment = (v: unknown) => isObject(v) && isString(v.id) && isString(v.mime);
-const attachments = (body: Json): AttachmentRef[] =>
-  optional<AttachmentRef[]>(body, "attachments", arrayOf(isAttachment), "an attachment list") ?? [];
 
 function isResponse(v: unknown): boolean {
   return (
@@ -98,23 +91,6 @@ export function draftRequest(body: Json): Draft {
   optional(body, "summary", isString, "a string");
   optional(body, "verdict", (v) => VERDICTS.includes(v as Verdict), VERDICTS.join("|"));
   return { summary: "", replies: [], ...body } as unknown as Draft;
-}
-
-export function threadActionRequest(body: Json): ThreadActionRequest {
-  switch (body.action) {
-    case "resolve":
-    case "unstage":
-      return { action: body.action };
-    case "reopen":
-    case "reply":
-      return {
-        action: body.action,
-        body: field(body, "body", isString, "a string"),
-        attachments: attachments(body),
-      };
-    default:
-      throw badRequest("`action` must be resolve|reopen|reply|unstage");
-  }
 }
 
 export function closeRequest(body: Json): CloseRequest {

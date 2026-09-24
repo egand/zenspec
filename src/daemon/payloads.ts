@@ -10,16 +10,18 @@ import type { KnowledgeBase } from "./kb.js";
 import { snapshotOf, type DocSession } from "./session.js";
 
 /**
- * Open threads opened, reopened or replied to in `review`, plus every open thread when it
- * approves.
+ * Threads opened or reopened in `review` that are still open, threads replied to in `review`
+ * whatever their status (a reply to an addressed thread still needs an answer), and every
+ * open thread when it approves.
  */
 function deliveredThreads(session: DocSession, review: Review): Thread[] {
   const { threads, threadOrder } = session.state;
-  const ids = new Set([...review.opened, ...review.reopened, ...review.replied]);
-  if (review.verdict === "approved") {
-    for (const id of threadOrder) if (threads[id]?.status === "open") ids.add(id);
-  }
-  return [...ids].map((id) => threads[id]!).filter((t) => t?.status === "open");
+  const isOpen = (id: ThreadId) => threads[id]?.status === "open";
+  const ids = new Set([...review.opened, ...review.reopened].filter(isOpen));
+  for (const id of review.replied)
+    if (threads[id] && threads[id].status !== "resolved") ids.add(id);
+  if (review.verdict === "approved") for (const id of threadOrder) if (isOpen(id)) ids.add(id);
+  return [...ids].map((id) => threads[id]!);
 }
 
 function placementsOnDisk(session: DocSession, threads: Thread[]): Record<ThreadId, Placement> {
@@ -75,9 +77,9 @@ export function formatDuration(ms: number): string {
 }
 
 /**
- * Implementation-time threads (§10) opened or reopened in reviews after the latest approval
- * and after `cursor`, merged into one payload. Null when no review is new; `payload` is null
- * when the new reviews left no open thread (the cursor still advances to `lastReview`).
+ * Implementation-time threads (§10) opened, reopened or replied to in reviews after the latest
+ * approval and after `cursor`, merged into one payload. Null when no review is new; `payload`
+ * is null when the new reviews left nothing to deliver (the cursor still advances).
  */
 export function implementationPayload(
   session: DocSession,

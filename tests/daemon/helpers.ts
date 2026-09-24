@@ -96,9 +96,12 @@ export class Doc {
     return this.api.ok("POST", this.route(ROUTES.revisions), req);
   }
 
-  wait(after: number, timeoutMs?: number): Promise<WaitReviewResponse> {
-    const query = `?after=${after}${timeoutMs === undefined ? "" : `&timeoutMs=${timeoutMs}`}`;
-    return this.api.ok("GET", this.route(ROUTES.nextReview) + query);
+  /** Waits for the first review after `after`, or after the delivered cursor when omitted. */
+  wait(after?: number, timeoutMs?: number): Promise<WaitReviewResponse> {
+    const query = new URLSearchParams();
+    if (after !== undefined) query.set("after", String(after));
+    if (timeoutMs !== undefined) query.set("timeoutMs", String(timeoutMs));
+    return this.api.ok("GET", `${this.route(ROUTES.nextReview)}?${query}`);
   }
 
   async submit(req: Partial<SubmitReviewRequest> & { revision: number }) {

@@ -55,7 +55,21 @@ export function markdownAnchor(
   revision: number,
   blocks: readonly Block[],
 ): MarkdownAnchor {
-  const at = sel.quote ? locate(source, sel, blocks) : -1;
+  if (!sel.quote) {
+    // A whole-block anchor: an empty quote at the block start, like `createMarkdownAnchor`.
+    const block = blocks.find((b) => b.id === sel.blockId);
+    const suffix = block?.source.slice(0, CONTEXT_CHARS) ?? "";
+    return {
+      type: "markdown",
+      rev: revision,
+      block: sel.blockId,
+      quote: "",
+      prefix: "",
+      suffix,
+      lines: sel.lines,
+    };
+  }
+  const at = locate(source, sel, blocks);
   const found = at >= 0;
   return {
     type: "markdown",

@@ -6,7 +6,7 @@ Adds three things to Claude Code:
 - **Approval gate** (`PreToolUse` on `Edit|Write|MultiEdit|NotebookEdit`): while any review in the edited file's repo is unapproved, edits outside `docs/plans/` (and outside the reviewed documents) are denied with a one-line reason.
 - **Implementation comments** (`PostToolUse` on edits and `Bash`): comments the reviewer adds to an approved plan reach Claude as additional context, once each. When there are none, the hook prints nothing and costs no tokens.
 
-Both hooks run `hooks/zenspec-hook.mjs` (Node built-ins only). They fail open: when `zenspec` isn't installed or no daemon is running, they allow the edit and print nothing. They never start the daemon. A running `zenspec review` keeps the daemon alive.
+Both hooks run `hooks/zenspec-hook.mjs` (Node built-ins only). They fail open: when `zenspec` isn't installed or no daemon is running, they allow the edit and print nothing. The pre hook never starts the daemon. The post hook starts it in the background when none is running and the repo has an approved or implementing plan, so checked steps and drift keep being tracked; the daemon then stays up until that plan is done.
 
 ## Requirements
 

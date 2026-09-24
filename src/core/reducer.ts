@@ -13,7 +13,8 @@
  * - A reply appends a `reply` message to an unresolved thread and never changes its status;
  *   replies to resolved or unknown threads are skipped.
  * - `drift_accepted` marks every drift not yet accepted; it is skipped when there is none.
- * - After `session_closed`, only `revision_published` is applied, and it reopens the session.
+ * - After `session_closed`, only `revision_published` and `session_reopened` are applied, and
+ *   both reopen the session. `session_reopened` on an open session is skipped.
  * - `step_checked` and `plan_drifted` before approval are skipped (§10: they only
  *   describe changes to an approved plan).
  *
@@ -91,7 +92,8 @@ export function replay(events: readonly ZenEvent[]): DocState {
 export function reduce(state: DocState | undefined, event: ZenEvent): DocState {
   const current = state ?? initialState();
   if ((event as { schemaVersion: unknown }).schemaVersion !== EVENT_SCHEMA_VERSION) return current;
-  if (current.closed && event.type !== "revision_published") return current;
+  const reopens = event.type === "revision_published" || event.type === "session_reopened";
+  if (current.closed && !reopens) return current;
   switch (event.type) {
     case "revision_published":
       return onRevision(current, event);
@@ -107,6 +109,8 @@ export function reduce(state: DocState | undefined, event: ZenEvent): DocState {
       return onDriftAccepted(current, event);
     case "session_closed":
       return onSessionClosed(current, event);
+    case "session_reopened":
+      return reopened(current);
     default:
       return current;
   }
@@ -135,9 +139,7 @@ function onRevision(state: DocState, e: RevisionPublished): DocState {
         : thread.status;
     threads[id] = { ...thread, placement, status };
   }
-  const next: DocState = { ...state, revisions: [...state.revisions, revision], threads };
-  delete next.closed;
-  return next;
+  return reopened({ ...state, revisions: [...state.revisions, revision], threads });
 }
 
 function onReview(state: DocState, e: ReviewSubmitted): DocState {
@@ -238,6 +240,14 @@ function onSessionClosed(state: DocState, e: SessionClosed): DocState {
   return { ...state, closed: { by: e.by, reason: e.reason, ts: e.ts } };
 }
 
+/** The state without `closed`; the same object when it is not closed. */
+function reopened(state: DocState): DocState {
+  if (!state.closed) return state;
+  const open = { ...state };
+  delete open.closed;
+  return open;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -295,29 +305,6 @@ export function openThreads(state: DocState): Thread[] {
 export function pendingDrift(state: DocState): Drift[] {
   const since = latestReview(state)?.ts ?? "";
   return state.drift.filter((d) => !d.acceptedAt && d.ts > since);
-}
-
-export interface NewThreadEntry {
-  thread: Thread;
-  /** True when the thread predates these reviews and was reopened in one of them. */
-  reopened: boolean;
-}
-
-/**
- * Threads opened, reopened or replied to by reviews of revision `revision` or later that are
- * still open: "only what's new" for the agent payload (§8.3). Review order.
- */
-export function threadsSince(state: DocState, revision: number): NewThreadEntry[] {
-  const entries = new Map<ThreadId, boolean>();
-  for (const review of state.reviews) {
-    if (review.revision < revision) continue;
-    for (const id of review.opened) if (!entries.has(id)) entries.set(id, false);
-    for (const id of review.reopened) if (!entries.has(id)) entries.set(id, true);
-    for (const id of review.replied) if (!entries.has(id)) entries.set(id, false);
-  }
-  return [...entries]
-    .map(([id, reopened]) => ({ thread: state.threads[id], reopened }))
-    .filter(({ thread }) => thread.status === "open");
 }
 
 export interface GateStatus {

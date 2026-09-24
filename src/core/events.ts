@@ -91,6 +91,14 @@ export interface SessionClosed extends EventBase {
   reason: string;
 }
 
+/**
+ * The agent ran `zenspec review` on a closed session whose file is unchanged: the session is
+ * open again. (A changed file reopens it with `revision_published` instead.)
+ */
+export interface SessionReopened extends EventBase {
+  type: "session_reopened";
+}
+
 export type ZenEvent =
   | RevisionPublished
   | ReviewSubmitted
@@ -98,7 +106,8 @@ export type ZenEvent =
   | StepChecked
   | PlanDrifted
   | DriftAccepted
-  | SessionClosed;
+  | SessionClosed
+  | SessionReopened;
 
 export type ZenEventType = ZenEvent["type"];
 

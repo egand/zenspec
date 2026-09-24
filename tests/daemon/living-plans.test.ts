@@ -1,17 +1,21 @@
+import fs from "node:fs";
+import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it, vi } from "vitest";
 import type { GateResponse, InboxPendingResponse, InboxResponse } from "../../src/core/api.js";
 import { ROUTES } from "../../src/core/api.js";
 import type { ZenEvent } from "../../src/core/events.js";
 import { pendingDrift, replay } from "../../src/core/reducer.js";
+import type { DaemonOptions } from "../../src/daemon/index.js";
 import { startTestDaemon, tempRepo, type Doc } from "./helpers.js";
 
 const PLAN = ["# Plan", "", "## Steps", "", "- [ ] Build event log", "- [ ] Write daemon", ""].join(
   "\n",
 );
 
-async function approvedPlan() {
+async function approvedPlan(options: DaemonOptions = {}) {
   const root = tempRepo({ "docs/plans/plan.md": PLAN, "src/app.ts": "" });
-  const t = await startTestDaemon();
+  const t = await startTestDaemon(options);
   const doc = await t.open(`${root}/docs/plans/plan.md`);
   await doc.publish();
   await doc.submit({ revision: 1, verdict: "approved" });
@@ -20,6 +24,15 @@ async function approvedPlan() {
 
 async function eventsOfType(doc: Doc, type: ZenEvent["type"]): Promise<ZenEvent[]> {
   return (await doc.state()).events.filter((e) => e.type === type);
+}
+
+function loggedTypes(home: string, doc: Doc): string[] {
+  const log = path.join(home, "repos", doc.repoId, "docs", doc.docId, "events.jsonl");
+  return fs
+    .readFileSync(log, "utf8")
+    .trimEnd()
+    .split("\n")
+    .map((line) => (JSON.parse(line) as ZenEvent).type);
 }
 
 describe("living plans", () => {
@@ -55,6 +68,39 @@ describe("living plans", () => {
     expect(state.reviews).toHaveLength(1);
     expect((await waiting).status).toBe("pending");
     expect((await accept()).status).toBe(409);
+  });
+
+  it("keeps the daemon running while a plan is approved or implementing", async () => {
+    const { daemon } = await approvedPlan({ idleMs: 30 });
+    let stopped = false;
+    void daemon.stopped.then(() => (stopped = true));
+    await delay(200);
+    expect(stopped).toBe(false);
+  });
+
+  it("classifies edits made while the daemon was down when it starts", async () => {
+    const { doc, daemon, home } = await approvedPlan();
+    await daemon.stop();
+    doc.write(PLAN.replace("- [ ] Build", "- [x] Build"));
+
+    await startTestDaemon({ home });
+    // Read the log directly: no request has touched the document since the restart.
+    expect(loggedTypes(home, doc)).toEqual([
+      "revision_published",
+      "review_submitted",
+      "step_checked",
+    ]);
+  });
+
+  it("does not record the same drift again after a restart", async () => {
+    const { doc, daemon, home } = await approvedPlan();
+    doc.write(PLAN + "- [ ] Ship it\n");
+    await vi.waitFor(async () => expect(await eventsOfType(doc, "plan_drifted")).toHaveLength(1));
+    await daemon.stop();
+    doc.write(PLAN.replace("- [ ] Build", "- [x] Build") + "- [ ] Ship it\n");
+
+    await startTestDaemon({ home });
+    expect(loggedTypes(home, doc).filter((t) => t === "plan_drifted")).toHaveLength(1);
   });
 
   it("ignores disk edits before approval (they are unpublished changes)", async () => {

@@ -37,7 +37,6 @@ export const ROUTES = {
   nextReview: "/api/docs/:repoId/:docId/reviews/next", // GET long-poll, query WaitReviewQuery
   reviews: "/api/docs/:repoId/:docId/reviews", // POST submit
   draft: "/api/docs/:repoId/:docId/draft", // GET, PUT
-  thread: "/api/docs/:repoId/:docId/threads/:threadId", // POST ThreadActionRequest
   attachments: "/api/docs/:repoId/:docId/attachments", // POST raw image bytes
   attachment: "/api/docs/:repoId/:docId/attachments/:attachmentId", // GET image
   close: "/api/docs/:repoId/:docId/close", // POST
@@ -46,7 +45,6 @@ export const ROUTES = {
   inbox: "/api/inbox", // GET, query InboxQuery
   inboxPending: "/api/inbox/pending", // POST, marks returned threads delivered
   gate: "/api/gate", // GET, query GateQuery
-  kbLookup: "/api/kb/lookup", // GET, query KbLookupQuery
   kbTerms: "/api/kb/terms", // GET
 } as const;
 
@@ -156,7 +154,7 @@ export interface PublishResponse {
   /** The latest revision after this call (new or unchanged). */
   revision: Revision;
   created: boolean;
-  /** Number of the latest review so far; pass as `after` to wait for the next one. */
+  /** Number of the latest review so far. */
   lastReview: number;
 }
 
@@ -165,11 +163,14 @@ export interface PublishResponse {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolves with the first review numbered greater than `after`. Every waiter receives the
- * same review; nothing is drained. Without `timeoutMs` the request waits indefinitely.
+ * Resolves with the first review numbered greater than `after`, which defaults to the last
+ * review delivered to the agent (a per-document cursor the daemon persists): a review
+ * submitted while no agent waited is delivered by the next wait, at once. Every waiter
+ * registered before a review arrives receives it; the cursor then advances to it. Without
+ * `timeoutMs` the request waits indefinitely.
  */
 export interface WaitReviewQuery {
-  after: number;
+  after?: number;
   timeoutMs?: number;
 }
 
@@ -214,22 +215,12 @@ export interface SubmitReviewResponse {
 }
 
 /**
- * Resolve or reopen a thread. The action is staged in the draft and takes effect when
- * the review is submitted, because only `review_submitted` changes reviewer-owned status.
- */
-export type ThreadActionRequest =
-  | { action: "resolve" }
-  | { action: "reopen"; body: string; attachments?: AttachmentRef[] }
-  | { action: "reply"; body: string; attachments?: AttachmentRef[] }
-  | { action: "unstage" };
-
-export type ThreadActionResponse = DraftResponse;
-
-/**
  * Body: raw PNG, JPEG or WebP bytes (at most 10 MB), already downscaled by the browser to at
- * most 1568 px on the long edge. The daemon validates the format, reads the dimensions, and
- * stores it content-addressed as `attachments/<id>.<ext>`, where the id is the first 12 hex
- * characters of the sha256 of the bytes.
+ * most 1568 px on the long edge; 413 when larger (the daemon does not resize). The daemon
+ * validates the format, reads the dimensions, and stores it content-addressed as
+ * `attachments/<id>.<ext>`, where the id is the first 12 hex characters of the sha256 of the
+ * bytes. A submitted review may only reference stored attachments, and their mime type and
+ * size are taken from the stored file.
  */
 export type UploadAttachmentResponse = AttachmentRef;
 
@@ -300,16 +291,6 @@ export interface KbNote {
   path: string;
   /** From `knowledgeBase.link`, when configured. */
   url?: string;
-}
-
-export interface KbLookupQuery {
-  term: string;
-}
-
-export interface KbLookupResponse {
-  /** False when no knowledge base is configured. */
-  configured: boolean;
-  note: KbNote | null;
 }
 
 /** Index used for term tooltips in the browser. */

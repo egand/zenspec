@@ -4,6 +4,7 @@ import { ROUTES, type GateQuery, type GateResponse } from "../../core/api.js";
 import type { DocumentRef } from "../../core/types.js";
 import { parse, positionals } from "../args.js";
 import type { CliContext } from "../context.js";
+import { canonicalPath } from "../../daemon/identity.js";
 import { connect } from "../discovery.js";
 import { existingFile } from "../docs.js";
 import { EXIT, type ExitCode } from "../errors.js";
@@ -15,7 +16,8 @@ export async function gate(args: string[], ctx: CliContext): Promise<ExitCode> {
   const [file] = positionals(rest, 0, 1, USAGE);
   const repoMode = values.repo || file === undefined;
   // In repo mode a file is the edit target: plan files and the reviewed documents stay editable.
-  const target = file === undefined ? undefined : path.resolve(ctx.cwd, file);
+  // Canonical, so a path through a symlink compares equal to the daemon's real paths.
+  const target = file === undefined ? undefined : canonicalPath(path.resolve(ctx.cwd, file));
   const query: GateQuery = repoMode
     ? { repo: target ?? ctx.cwd }
     : { path: existingFile(ctx, file) };
@@ -33,7 +35,9 @@ export async function gate(args: string[], ctx: CliContext): Promise<ExitCode> {
   return EXIT.blocked;
 }
 
+/** Whether `target` (canonical) is the reviewed document or under the repo's `docs/plans/`. */
 function editable(target: string, doc: DocumentRef): boolean {
-  const plans = path.join(doc.repoRoot, "docs", "plans") + path.sep;
-  return target === path.join(doc.repoRoot, doc.relPath) || target.startsWith(plans);
+  const root = canonicalPath(doc.repoRoot);
+  const plans = path.join(root, "docs", "plans") + path.sep;
+  return target === path.join(root, doc.relPath) || target.startsWith(plans);
 }

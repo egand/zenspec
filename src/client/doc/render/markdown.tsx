@@ -15,6 +15,7 @@ import { termPattern } from "../kb/terms.js";
 import { MermaidDiagram } from "../mermaid/MermaidDiagram.js";
 import { CodeBlock } from "./CodeBlock.js";
 import { MathView } from "./MathView.js";
+import { safeUrl } from "../../../core/html.js";
 
 export interface BlockStep {
   id: string;
@@ -39,9 +40,6 @@ export interface RenderCtx {
   definitions: Definitions;
   inLink: boolean;
 }
-
-const SAFE_URL = /^(?:https?:|mailto:|#|\/|\.|[^:]*$)/i;
-const safeUrl = (url: string): string | undefined => (SAFE_URL.test(url) ? url : undefined);
 
 const ALERT = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i;
 

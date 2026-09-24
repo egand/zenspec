@@ -1,5 +1,6 @@
 /**
  * The `~/.zenspec` directory (plan §5, §13): location, legacy v1 cleanup, and `daemon.json`.
+ * Also imported by the CLI, so it depends on Node built-ins and core types only.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -16,12 +17,6 @@ export function expandHome(p: string): string {
   return p === "~" || p.startsWith("~/") ? path.join(os.homedir(), p.slice(1)) : p;
 }
 
-/** Shortens an absolute path under the user's home to `~/...` (fewer tokens in payloads). */
-export function tildify(p: string): string {
-  const home = os.homedir();
-  return p === home || p.startsWith(home + path.sep) ? `~${p.slice(home.length)}` : p;
-}
-
 /** v1 kept `sessions/` and `state.json` here; v2 does not read them. */
 export function removeLegacyState(home: string): void {
   fs.rmSync(path.join(home, "sessions"), { recursive: true, force: true });
@@ -30,10 +25,11 @@ export function removeLegacyState(home: string): void {
 
 export const daemonFile = (home: string) => path.join(home, "daemon.json");
 
+/** The recorded daemon, or null when absent or invalid. Shared by the CLI and the daemon. */
 export function readDaemonInfo(home: string): DaemonInfo | null {
   try {
     const info = JSON.parse(fs.readFileSync(daemonFile(home), "utf8")) as DaemonInfo;
-    return typeof info.pid === "number" && typeof info.port === "number" ? info : null;
+    return Number.isInteger(info.pid) && Number.isInteger(info.port) ? info : null;
   } catch {
     return null;
   }

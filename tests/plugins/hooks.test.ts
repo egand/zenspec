@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { startTestDaemon, tempDir, tempRepo } from "../daemon/helpers.js";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -153,6 +153,45 @@ describe("PostToolUse inbox hook", () => {
     expect(context).toContain("# docs/plans/plan.md");
     expect(context).toContain("Careful with step 2");
     expect(await runHook("post", posted(root), env)).toMatchObject(silent);
+  });
+});
+
+describe("PostToolUse daemon start", () => {
+  const daemonPid = (home: string): number | undefined => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(home, "daemon.json"), "utf8")).pid;
+    } catch {
+      return undefined;
+    }
+  };
+
+  it("starts the daemon when the repo has an approved plan and none is running", async () => {
+    const { root, env, daemon } = await reviewedRepo("approved");
+    await daemon.stop();
+    const run = await runHook("post", posted(root), env);
+    expect(run).toMatchObject(silent);
+    expect(run.ms).toBeLessThan(2000);
+    const pid = await vi.waitFor(
+      () => {
+        const found = daemonPid(env.ZENSPEC_HOME);
+        expect(found).toBeDefined();
+        return found!;
+      },
+      { timeout: 10_000, interval: 50 },
+    );
+    process.kill(pid, "SIGTERM");
+    await vi.waitFor(() => expect(daemonPid(env.ZENSPEC_HOME)).toBeUndefined(), {
+      timeout: 10_000,
+      interval: 50,
+    });
+  });
+
+  it("does not start one for a plan that is not approved", async () => {
+    const { root, env, daemon } = await reviewedRepo("changes_requested");
+    await daemon.stop();
+    expect(await runHook("post", posted(root), env)).toMatchObject(silent);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(daemonPid(env.ZENSPEC_HOME)).toBeUndefined();
   });
 });
 

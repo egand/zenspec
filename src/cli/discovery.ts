@@ -2,10 +2,9 @@
  * Daemon discovery (plan §13): read `daemon.json`, check `/health`, and (re)start the daemon
  * when it is missing, dead, or running another version. The port always comes from the file.
  */
-import fs from "node:fs";
-import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { ROUTES, type DaemonInfo, type HealthResponse } from "../core/api.js";
+import { readDaemonInfo as readHomeDaemonInfo } from "../daemon/home.js";
 import { type CliContext, zenspecHome } from "./context.js";
 import { UnreachableError } from "./errors.js";
 import { DaemonClient } from "./http.js";
@@ -15,17 +14,8 @@ const START_TIMEOUT_MS = 10_000;
 const STOP_TIMEOUT_MS = 5000;
 const POLL_MS = 50;
 
-function daemonInfoPath(ctx: Pick<CliContext, "env">): string {
-  return path.join(zenspecHome(ctx), "daemon.json");
-}
-
-export function readDaemonInfo(ctx: Pick<CliContext, "env">): DaemonInfo | undefined {
-  try {
-    const info = JSON.parse(fs.readFileSync(daemonInfoPath(ctx), "utf8")) as DaemonInfo;
-    return Number.isInteger(info.port) ? info : undefined;
-  } catch {
-    return undefined;
-  }
+export function readDaemonInfo(ctx: Pick<CliContext, "env">): DaemonInfo | null {
+  return readHomeDaemonInfo(zenspecHome(ctx));
 }
 
 /** Health of the daemon on `port`, or undefined when nothing healthy answers. */

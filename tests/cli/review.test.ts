@@ -64,7 +64,8 @@ describe("zenspec review", () => {
       ],
     });
     const [wait] = stub.callsTo(`GET ${DOC}/reviews/next`);
-    expect(Object.fromEntries(wait.query)).toEqual({ after: "4" });
+    // No `after`: the daemon waits past the last review delivered to the agent.
+    expect(Object.fromEntries(wait.query)).toEqual({});
   });
 
   it("does not open the browser when a tab is connected or with --no-open", async () => {

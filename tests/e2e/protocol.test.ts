@@ -279,6 +279,56 @@ describe("zenspec CLI against the real daemon", { timeout: 30_000 }, () => {
     });
   });
 
+  it("delivers a review submitted between calls to the next call, once", async () => {
+    const w = workspace();
+    expect(
+      payloadOf(await w.zenspec("review", PLAN_PATH, "--no-open", "--wait", "1s")).verdict,
+    ).toBe("pending");
+    // The reviewer submits while no agent is waiting (e.g. the agent is editing).
+    const doc = await w.reviewer(1);
+    await doc.submit({ revision: 1, opened: [{ kind: "general", body: "Why?", attachments: [] }] });
+
+    const next = payloadOf(await w.zenspec("review", PLAN_PATH, "--no-open", "--wait", "1s"));
+    expect(next).toMatchObject({
+      verdict: "changes_requested",
+      review: 1,
+      threads: [{ id: "t1" }],
+    });
+    // Delivered once: the following call waits for a newer review.
+    const again = await w.zenspec("review", PLAN_PATH, "--no-open", "--wait", "1s");
+    expect(payloadOf(again).verdict).toBe("pending");
+  });
+
+  it("reopens a closed session when `review` is run again on the unchanged file", async () => {
+    const w = workspace();
+    const waiting = w.zenspec("review", PLAN_PATH, "--no-open");
+    await w.reviewer(1);
+    await w.zenspec("close", PLAN_PATH);
+    expect(payloadOf(await waiting).verdict).toBe("closed");
+
+    const reopened = w.zenspec("review", PLAN_PATH, "--no-open");
+    const doc = await w.reviewer(1);
+    await vi.waitFor(
+      async () => expect(replay((await doc.state()).events).closed).toBeUndefined(),
+      WAIT,
+    );
+    await doc.submit({ revision: 1, verdict: "approved" });
+    expect(payloadOf(await reopened).verdict).toBe("approved");
+  });
+
+  it("allows edits to the plan through a symlinked path", async () => {
+    const w = workspace();
+    const waiting = w.zenspec("review", PLAN_PATH, "--no-open");
+    const doc = await w.reviewer(1);
+    const link = path.join(tempDir("link"), "repo");
+    fs.symlinkSync(w.repo, link);
+    expect((await w.zenspec("gate", "--repo", path.join(link, PLAN_PATH))).code).toBe(0);
+    expect((await w.zenspec("gate", "--repo", path.join(link, "docs/plans/new.md"))).code).toBe(0);
+    expect((await w.zenspec("gate", "--repo", path.join(link, "src/app.ts"))).code).toBe(1);
+    await doc.submit({ revision: 1, verdict: "approved" });
+    await waiting;
+  });
+
   it("gates the repo while the plan is in review and allows edits after approval", async () => {
     const w = workspace();
     const waiting = w.zenspec("review", PLAN_PATH, "--no-open");
@@ -395,6 +445,11 @@ describe("zenspec CLI against the real daemon", { timeout: 30_000 }, () => {
 
   it("auto-spawns the daemon, and `daemon stop` leaves no process behind", async () => {
     const w = workspace();
+    expect(await w.zenspec("--version")).toEqual({
+      code: 0,
+      stdout: `${__ZENSPEC_VERSION__}\n`,
+      stderr: "",
+    });
     expect(daemonInfo(w.home)).toBeUndefined();
     expect(await w.zenspec("status")).toMatchObject({ code: 0, stdout: "no open reviews\n" });
     const info = daemonInfo(w.home)!;

@@ -1,5 +1,6 @@
 import { memo } from "preact/compat";
 import { useEffect, useMemo, useState } from "preact/hooks";
+import { escapeHtml } from "../../../core/html.js";
 
 type Katex = typeof import("katex").default;
 
@@ -12,9 +13,6 @@ interface Props {
   value: string;
   display: boolean;
 }
-
-const escapeHtml = (text: string) =>
-  text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
 /**
  * KaTeX output. `trust: false` keeps `\href`/`\htmlClass` and friends disabled, so the markup is

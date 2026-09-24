@@ -9,7 +9,6 @@ import { parse } from "yaml";
 import type { KbNote } from "../core/api.js";
 import type { KnowledgeBaseConfig } from "../core/config.js";
 import type { ExplainTarget } from "../core/format-payload.js";
-import { tildify } from "./home.js";
 
 /** Lowercase, punctuation-insensitive key: "JSON", "json" and "Json!" all match `json`. */
 export function termKey(term: string): string {
@@ -73,10 +72,8 @@ export class KnowledgeBase {
     if (!this.config || !dir || this.lookup(term)) return undefined;
     const slug = termKey(term) || "note";
     return {
-      saveTo: tildify(path.join(dir, `${slug}.md`)),
-      ...(this.config.template && {
-        template: tildify(path.join(this.config.root, this.config.template)),
-      }),
+      saveTo: path.join(dir, `${slug}.md`),
+      ...(this.config.template && { template: path.join(this.config.root, this.config.template) }),
     };
   }
 

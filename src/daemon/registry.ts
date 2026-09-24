@@ -1,13 +1,15 @@
 /**
- * Documents known to the daemon. Sessions are loaded lazily from disk on first access, and
- * each loaded document's file is watched for live preview and living-plan tracking.
+ * Documents known to the daemon. Sessions are loaded lazily from disk on first access, except
+ * living plans (approved or implementing), which are loaded at startup. Each loaded
+ * document's file is watched for live preview and living-plan tracking.
  */
 import fs from "node:fs";
 import { watch, type FSWatcher } from "chokidar";
 import type { DocumentRef } from "../core/types.js";
 import { badRequest, notFound } from "./http.js";
 import { identify, repoIdOf, repoRootOf, shortHash } from "./identity.js";
-import { DocSession, type SessionContext } from "./session.js";
+import { replay } from "../core/reducer.js";
+import { DocSession, isLiving, type SessionContext } from "./session.js";
 import { DocStorage, listDocIds, listRepoIds } from "./storage.js";
 
 interface Entry {
@@ -67,6 +69,28 @@ export class Registry {
 
   all(): DocSession[] {
     return listRepoIds(this.home).flatMap((repoId) => this.inRepo(repoId));
+  }
+
+  /**
+   * Loads every living plan, so its file is watched and edits made while no daemon ran are
+   * classified now (§10). Resolves once the watchers are ready.
+   */
+  async loadLivingPlans(): Promise<void> {
+    const ready: Promise<void>[] = [];
+    for (const repoId of listRepoIds(this.home).filter(isSafeSegment)) {
+      for (const docId of listDocIds(this.home, repoId).filter(isSafeSegment)) {
+        const events = new DocStorage(this.home, repoId, docId).readEvents();
+        if (!isLiving(replay(events).phase)) continue;
+        const entry = this.load(repoId, docId);
+        if (entry) ready.push(entry.ready);
+      }
+    }
+    await Promise.all(ready);
+  }
+
+  /** Whether a loaded document is a living plan (the daemon then stays up to track it). */
+  hasLivingPlan(): boolean {
+    return [...this.entries.values()].some(({ session }) => session.living);
   }
 
   /** Waiters and SSE listeners across loaded documents. */

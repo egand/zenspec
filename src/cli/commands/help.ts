@@ -18,7 +18,9 @@ time, then block until the next review and print it as YAML on stdout (exit 0).
                            re-run the printed next: command to keep waiting
   --no-open                never open the browser
 Every waiting process receives the same review. Prefer running it in the background.
-Re-running with no changes and no responses just resumes waiting.
+A review is delivered once: one submitted while nothing waited (after "verdict: pending", or
+while you were editing) is printed by the next call at once. Re-running with no changes and
+no responses just resumes waiting. Re-running on a closed session reopens it.
 Payload: verdict, review, revision, summary, threads (id, kind, at, quote, body, old/new,
 choice, images), next (the exact command to run next).`,
   gate: `zenspec gate [<file>] [--repo]

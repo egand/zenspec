@@ -156,8 +156,9 @@ export function typicalReview(): PayloadInput {
     attachmentPath,
     explain: {
       t12: {
-        saveTo: "~/Developer/projects/second-brain/content/02_concepts/json.md",
-        template: "~/Developer/projects/second-brain/content/05_templates/concept_template.md",
+        saveTo: "/Users/egand/Developer/projects/second-brain/content/02_concepts/json.md",
+        template:
+          "/Users/egand/Developer/projects/second-brain/content/05_templates/concept_template.md",
       },
     },
   };
@@ -216,7 +217,7 @@ export function approvedWithOpenThreads(): PayloadInput {
   };
 }
 
-/** A comment review that only replies to two threads that are still open. */
+/** A comment review that only replies: to an open thread and to one the agent addressed. */
 export function repliesReview(): PayloadInput {
   return {
     review: review("comment", [], [], "", ["t8", "t11"]),
@@ -225,10 +226,16 @@ export function repliesReview(): PayloadInput {
         msg("What about write-through for the session table?"),
         msg("Also: what happens on a cache stampede?", { action: "reply", review: 3 }),
       ]),
-      thread("t11", { kind: "general" }, [
-        msg("Can you add a rollback section?"),
-        msg("See the attached flow.", { action: "reply", review: 3, attachments: [image(2)] }),
-      ]),
+      thread(
+        "t11",
+        { kind: "general" },
+        [
+          msg("Can you add a rollback section?"),
+          msg("Added one.", { author: "agent", action: "edited", review: undefined, revision: 2 }),
+          msg("See the attached flow.", { action: "reply", review: 3, attachments: [image(2)] }),
+        ],
+        { status: "addressed" },
+      ),
     ],
     placements: { t8: at(5) },
     docPath: DOC_PATH,

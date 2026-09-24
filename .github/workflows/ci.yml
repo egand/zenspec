@@ -24,3 +24,12 @@ jobs:
       # the CLI-daemon protocol e2e tests, and the client tests (happy-dom, no browser needed).
       - name: Check
         run: npm run check
+
+      # Puppeteer downloads Chrome in its postinstall; installing it explicitly also covers npm
+      # setups that skip install scripts. The harness adds `--no-sandbox` when `CI` is set.
+      - name: Install Chrome for the browser tests
+        run: npx puppeteer browsers install chrome
+
+      # Real daemon + built client + headless Chrome (tests/browser), kept out of `npm test`.
+      - name: Browser tests
+        run: npm run test:browser

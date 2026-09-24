@@ -1,6 +1,7 @@
 /**
  * The ZenSpec daemon (plan §13): one global `node:http` server on 127.0.0.1, the only
- * writer of `~/.zenspec`, stopped by request or after an idle period.
+ * writer of `~/.zenspec`, stopped by request or after an idle period. It is never idle while
+ * a plan is approved or implementing, so living-plan tracking (§10) keeps running.
  */
 import fs from "node:fs";
 import http from "node:http";
@@ -116,7 +117,7 @@ async function launch(
   function resetIdle(): void {
     clearTimeout(idleTimer);
     idleTimer = undefined;
-    if (!stopping && registry.activity() === 0) {
+    if (!stopping && registry.activity() === 0 && !registry.hasLivingPlan()) {
       idleTimer = setTimeout(() => void stop(), idleMs);
     }
   }
@@ -133,6 +134,8 @@ async function launch(
 
   server.on("request", (req, res) => {
     resetIdle();
+    // Again once answered: the request may have approved a plan or finished one.
+    res.once("close", resetIdle);
     void handle(req, res).catch((err: unknown) => sendError(res, err));
   });
 
@@ -167,6 +170,7 @@ async function launch(
     }
   }
 
+  await registry.loadLivingPlans();
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(options.port ?? config.daemon?.port ?? 0, "127.0.0.1", () => {

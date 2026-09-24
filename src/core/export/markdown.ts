@@ -6,30 +6,17 @@
  * MathML (no stylesheet or fonts needed).
  */
 import katex from "katex";
+import { escapeHtml, safeUrl } from "../html.js";
 import type { Blockquote, List, ListItem, Nodes, Paragraph, PhrasingContent, Table } from "mdast";
 
 export interface Definitions {
   [identifier: string]: { url: string; title?: string | null };
 }
 
-const SAFE_URL = /^(?:https?:|mailto:|#|\/|\.|[^:]*$)/i;
 const ALERT = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i;
-
-const ESCAPES: Record<string, string> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&#39;",
-};
-
-/** Escapes text for HTML content and double-quoted attributes. */
-export const escapeHtml = (text: string): string => text.replace(/[&<>"']/g, (c) => ESCAPES[c]!);
 
 const attr = (name: string, value: string | null | undefined): string =>
   value === undefined || value === null ? "" : ` ${name}="${escapeHtml(value)}"`;
-
-const safeUrl = (url: string): string | undefined => (SAFE_URL.test(url) ? url : undefined);
 
 export function renderMath(value: string, display: boolean): string {
   const html = katex.renderToString(value, {

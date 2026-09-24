@@ -9,7 +9,6 @@ import type {
   InboxItem,
   InboxPendingResponse,
   InboxResponse,
-  KbLookupResponse,
   KbTermsResponse,
   OpenDocResponse,
   SseMessage,
@@ -20,9 +19,9 @@ import type {
 import { PAGES, ROUTES, fillPath } from "../core/api.js";
 import { gateStatus, latestReview, latestRevision, openThreads } from "../core/reducer.js";
 import type { DocumentRef } from "../core/types.js";
-import { badRequest, notFound, readBody, readJson, Router } from "./http.js";
+import { badRequest, HttpError, notFound, readBody, readJson, Router } from "./http.js";
 import type { RequestContext } from "./http.js";
-import { MAX_ATTACHMENT_BYTES, attachmentRef, probeImage } from "./images.js";
+import { MAX_ATTACHMENT_BYTES, MAX_IMAGE_EDGE, attachmentRef, probeImage } from "./images.js";
 import type { KnowledgeBase } from "./kb.js";
 import { implementationPayload, pendingPayload, reviewPayload } from "./payloads.js";
 import type { Registry } from "./registry.js";
@@ -75,8 +74,13 @@ export function buildRouter(d: DaemonContext): Router {
       const n = Number(ctx.params.n);
       const content = Number.isInteger(n) ? session.storage.readRevision(n) : null;
       if (content === null) throw notFound(`Unknown revision: ${ctx.params.n}`);
-      const type = session.ref.kind === "html" ? "text/html" : "text/markdown";
-      ctx.res.writeHead(200, { "Content-Type": `${type}; charset=utf-8` });
+      const html = session.ref.kind === "html";
+      ctx.res.writeHead(200, {
+        "Content-Type": `${html ? "text/html" : "text/markdown"}; charset=utf-8`,
+        "X-Content-Type-Options": "nosniff",
+        // An agent-written mockup opened directly must not run with the daemon's origin.
+        ...(html && { "Content-Security-Policy": "sandbox allow-scripts" }),
+      });
       ctx.res.end(content);
     })
     .add("GET", ROUTES.nextReview, (ctx) => waitForReview(ctx, doc(ctx), d.kb))
@@ -90,15 +94,17 @@ export function buildRouter(d: DaemonContext): Router {
       session.setDraft(validate.draftRequest(await readJson(ctx.req)));
       return { draft: session.draft };
     })
-    .add("POST", ROUTES.thread, async (ctx): Promise<DraftResponse> => {
-      const action = validate.threadActionRequest(await readJson(ctx.req));
-      return { draft: doc(ctx).stageThreadAction(ctx.params.threadId!, action) };
-    })
     .add("POST", ROUTES.attachments, async (ctx): Promise<UploadAttachmentResponse> => {
       const session = doc(ctx);
       const bytes = await readBody(ctx.req, MAX_ATTACHMENT_BYTES);
       const info = probeImage(bytes);
       if (!info) throw badRequest("Expected a PNG, JPEG or WebP image");
+      if (Math.max(info.width, info.height) > MAX_IMAGE_EDGE) {
+        throw new HttpError(
+          "too_large",
+          `Image is ${info.width}x${info.height}; the long edge must be at most ${MAX_IMAGE_EDGE} px`,
+        );
+      }
       const ref = attachmentRef(bytes, info);
       session.storage.writeAttachment(ref.id, ref.mime, bytes);
       return ref;
@@ -137,9 +143,9 @@ export function buildRouter(d: DaemonContext): Router {
       for (const session of d.registry.inRepoOf(repo)) {
         const { phase } = session.state;
         if (phase !== "approved" && phase !== "implementing") continue;
-        const found = implementationPayload(session, session.storage.readDelivered(), d.kb);
+        const found = implementationPayload(session, session.delivered, d.kb);
         if (!found) continue;
-        session.storage.writeDelivered(found.lastReview);
+        session.markDelivered(found.lastReview);
         if (found.payload) items.push({ doc: session.ref, payload: found.payload });
       }
       return { items };
@@ -159,11 +165,6 @@ export function buildRouter(d: DaemonContext): Router {
         .filter((s) => isOpenReview(s) && !gateStatus(s.state).approved)
         .map((s) => ({ doc: s.ref, phase: s.state.phase }));
       return { approved: blocking.length === 0, blocking };
-    })
-    .add("GET", ROUTES.kbLookup, ({ query }): KbLookupResponse => {
-      const term = query.get("term");
-      if (!term) throw badRequest("`term` is required");
-      return { configured: d.kb.configured, note: d.kb.lookup(term) };
     })
     .add("GET", ROUTES.kbTerms, (): KbTermsResponse => ({ notes: d.kb.list() }));
 }
@@ -194,15 +195,18 @@ async function waitForReview(
   kb: KnowledgeBase,
 ): Promise<WaitReviewResponse> {
   const after = validate.intParam(query, "after");
-  if (after === undefined) throw badRequest("`after` is required");
   const timeoutMs = validate.intParam(query, "timeoutMs");
   const abort = new AbortController();
   res.once("close", () => abort.abort());
   req.socket.setTimeout(0);
   const outcome = await session.wait(after, timeoutMs, abort.signal);
   switch (outcome.kind) {
-    case "review":
-      return { status: "delivered", payload: reviewPayload(session, outcome.review, kb) };
+    case "review": {
+      const payload = reviewPayload(session, outcome.review, kb);
+      // A waiter that hung up never received it: the next wait delivers it instead.
+      if (!abort.signal.aborted) session.markDelivered(outcome.review.n);
+      return { status: "delivered", payload };
+    }
     case "closed":
       return { status: "closed", by: outcome.by, reason: outcome.reason };
     case "timeout":

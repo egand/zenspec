@@ -3,12 +3,19 @@
  * against a later revision with six strategies tried in order.
  */
 import type { Block, BlockId, LineRange, MarkdownAnchor, Placement } from "../types.js";
-import { fuzzyFind } from "./fuzzy.js";
+import { fuzzyFind, normalizeWhitespace } from "./fuzzy.js";
 
 /** Characters of context kept on each side of the quote. */
 export const CONTEXT_CHARS = 32;
 /** Minimal similarity for a fuzzy match (strategy 4). */
 export const FUZZY_THRESHOLD = 0.8;
+/**
+ * Minimal share of the anchor's own context found in a block for strategy 5 to accept it.
+ * Block IDs are ordinals within a section, so after a deletion another block inherits the ID.
+ */
+export const BLOCK_SIMILARITY_THRESHOLD = 0.5;
+/** Below this many trigrams, the context alone is too short to vouch for a block. */
+const MIN_CONTEXT_TRIGRAMS = 10;
 
 /** A Markdown revision: its source text and the blocks parsed from it. */
 export interface MarkdownSnapshot {
@@ -30,7 +37,9 @@ export function createMarkdownAnchor(
     const block = doc.blocks.find((b) => b.id === selection.block);
     if (!block) throw new Error(`Unknown block: ${selection.block}`);
     const base = { type: "markdown", rev: doc.revision, block: block.id } as const;
-    return { ...base, quote: "", prefix: "", suffix: "", lines: block.lines };
+    // An empty quote at the block start: the suffix fingerprints the block for strategy 5.
+    const suffix = block.source.slice(0, CONTEXT_CHARS);
+    return { ...base, quote: "", prefix: "", suffix, lines: block.lines };
   }
   const { start, end } = selection;
   if (start < 0 || end <= start || end > doc.text.length) {
@@ -93,11 +102,44 @@ export function reanchorMarkdown(anchor: MarkdownAnchor, doc: MarkdownSnapshot):
       fuzzyFind(text, quote, { threshold: FUZZY_THRESHOLD, unique: true });
     if (fuzzy) return placeAt(4, fuzzy.start, fuzzy.end, fuzzy.score);
   }
-  // 5. The block survives: attach to the whole block. 6. Otherwise the anchor is outdated.
-  if (block) {
+  // 5. The block survives (same ID and still resembling the anchor's context): attach to the
+  // whole block. 6. Otherwise the anchor is outdated.
+  if (block && resembles(anchor, block.source)) {
     return { revision, strategy: 5, block: block.id, lines: block.lines, matched: block.source };
   }
   return { revision, strategy: 6 };
+}
+
+/**
+ * Whether a block plausibly is the one the anchor was captured in: most character trigrams of
+ * the anchor's own context (prefix and suffix cut at blank lines, so neighbouring blocks don't
+ * count), or of that context plus the quote, still occur in the block. The quote alone is gone
+ * by now (strategies 1-4 failed), so a rewritten quote in a surviving paragraph still matches.
+ * An anchor without any context (e.g. a question's) always matches.
+ */
+function resembles(anchor: MarkdownAnchor, blockSource: string): boolean {
+  const before = anchor.prefix.split(/\n\s*\n/).at(-1)!;
+  const after = anchor.suffix.split(/\n\s*\n/)[0]!;
+  const present = trigrams(blockSource);
+  const share = (wanted: Set<string>): number => {
+    let found = 0;
+    for (const t of wanted) if (present.has(t)) found++;
+    return found / wanted.size;
+  };
+  const context = trigrams(`${before}\n${after}`);
+  const all = trigrams(before + anchor.quote + after);
+  if (!all.size) return true;
+  return (
+    Math.max(context.size >= MIN_CONTEXT_TRIGRAMS ? share(context) : 0, share(all)) >=
+    BLOCK_SIMILARITY_THRESHOLD
+  );
+}
+
+function trigrams(text: string): Set<string> {
+  const norm = normalizeWhitespace(text.toLowerCase()).text.trim();
+  const out = new Set<string>();
+  for (let i = 0; i + 3 <= norm.length; i++) out.add(norm.slice(i, i + 3));
+  return out;
 }
 
 /** Smallest block containing a line (blocks may nest, e.g. a paragraph inside a list). */

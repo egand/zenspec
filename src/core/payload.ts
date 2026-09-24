@@ -8,8 +8,9 @@
  * - Quotes are truncated to 120 characters.
  * - Line numbers (`at`) refer to the file on disk at delivery time.
  * - Never includes the document, history, or resolved threads.
+ * - A reply is delivered whatever the thread's status (open, addressed, declined, outdated).
  */
-import type { Author, QuestionId, ThreadId, Verdict } from "./types.js";
+import type { Author, QuestionId, ThreadId, ThreadStatus, Verdict } from "./types.js";
 
 /**
  * `pending` is returned when `--wait` expires before a review arrives (§8.4); `closed` when
@@ -32,8 +33,10 @@ interface PayloadThreadBase {
   id: ThreadId;
   /** Present only when the reviewer reopened the thread in this review. */
   reopened?: true;
-  /** Present only in approved payloads, for threads still open (§8.3). */
-  status?: "open";
+  /** Present only when the reviewer replied to the thread in this review; `body` is the reply. */
+  replied?: true;
+  /** The thread's status: on replies (any status), and in approved payloads on open threads (§8.3). */
+  status?: Exclude<ThreadStatus, "resolved">;
   images?: PayloadImage[];
 }
 

@@ -47,7 +47,7 @@ export async function review(args: string[], ctx: CliContext): Promise<void> {
 
   const daemon = await connect(ctx);
   const opened = await openDoc(daemon, abs);
-  const published = await daemon.post<PublishResponse>(docRoute(ROUTES.revisions, opened.doc), {
+  await daemon.post<PublishResponse>(docRoute(ROUTES.revisions, opened.doc), {
     author: "agent",
     ...(values.message !== undefined && { summary: values.message }),
     ...(responses.length > 0 && { responses }),
@@ -57,7 +57,7 @@ export async function review(args: string[], ctx: CliContext): Promise<void> {
   }
 
   const route = docRoute(ROUTES.nextReview, opened.doc);
-  const result = await waitForReview(ctx, daemon, route, published.lastReview, waitMs);
+  const result = await waitForReview(ctx, daemon, route, waitMs);
   ctx.stdout.write(render(result, file, values.wait));
 }
 
@@ -83,21 +83,22 @@ function openBrowserEnabled(ctx: CliContext): boolean {
 }
 
 /**
- * Long-poll for the next review. A dropped connection is retried transparently, reconnecting
- * (and restarting the daemon if needed); the `--wait` deadline is kept across retries.
+ * Long-poll for the first review not yet delivered to the agent: one submitted while no
+ * `review` was waiting (after a `pending` timeout, or while the agent was editing) comes back
+ * at once. A dropped connection is retried transparently, reconnecting (and restarting the
+ * daemon if needed); the `--wait` deadline is kept across retries.
  */
 async function waitForReview(
   ctx: CliContext,
   daemon: DaemonClient,
   route: string,
-  after: number,
   waitMs: number | undefined,
 ): Promise<WaitReviewResponse> {
   const deadline = waitMs === undefined ? undefined : Date.now() + waitMs;
   for (let attempt = 0; ; attempt++) {
     const timeoutMs = deadline === undefined ? undefined : Math.max(0, deadline - Date.now());
     try {
-      return await daemon.get<WaitReviewResponse>(route, { query: { after, timeoutMs } });
+      return await daemon.get<WaitReviewResponse>(route, { query: { timeoutMs } });
     } catch (err) {
       if (!(err instanceof UnreachableError) || attempt >= MAX_RETRIES) throw err;
       await delay(RETRY_BASE_MS * 2 ** attempt);

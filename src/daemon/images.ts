@@ -1,11 +1,14 @@
 /**
- * Attachment validation (plan §9.2). The browser downscales before uploading, so the daemon
- * only checks the format by its magic bytes, reads the dimensions, and hashes the bytes.
+ * Attachment validation (plan §9.2). The browser downscales before uploading; the daemon
+ * checks the format by its magic bytes, reads the dimensions, and hashes the bytes. It does
+ * not resize (that would need an image codec dependency): it rejects larger images instead.
  */
 import { createHash } from "node:crypto";
 import type { AttachmentRef } from "../core/types.js";
 
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+/** Longest accepted edge, in pixels (what vision models use without downscaling). */
+export const MAX_IMAGE_EDGE = 1568;
 
 export type ImageMime = "image/png" | "image/jpeg" | "image/webp";
 

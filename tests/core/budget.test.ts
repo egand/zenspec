@@ -65,7 +65,7 @@ const fixtures: [string, ReviewPayload][] = [
   ["typical (6 mixed threads)", buildPayload(typicalReview())],
   ["large (30 threads)", buildPayload(largeReview())],
   ["approved with open threads", buildPayload(approvedWithOpenThreads())],
-  ["replies on open threads", buildPayload(repliesReview())],
+  ["replies (open and addressed threads)", buildPayload(repliesReview())],
   ["pending", buildPendingPayload(DOC_PATH, "10m")],
   ["closed", buildClosedPayload("reviewer", "superseded by another plan")],
 ];

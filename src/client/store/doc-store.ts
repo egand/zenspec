@@ -3,7 +3,8 @@
  * the live file content, and the reviewer's draft, all as signals.
  *
  * - Load: subscribe to the document's SSE stream; every (re)connect resyncs from `GET doc`.
- * - Events arriving during a resync are buffered and applied after it, deduplicated.
+ * - Events arriving during a resync are buffered and applied after it, deduplicated. Resyncs
+ *   never overlap: a resync requested during one runs once after it.
  * - Draft edits are applied locally at once and saved to the daemon, debounced. While local
  *   edits are unsaved, draft pushes from the daemon are ignored so they can't clobber them.
  */
@@ -98,8 +99,28 @@ export function createDocStore({ api, sse, saveDelayMs = 400 }: DocStoreOptions)
     if (event.type === "revision_published") void onRevision(event.n);
   }
 
-  async function resync(): Promise<void> {
-    buffer ??= [];
+  let resyncing: Promise<void> | null = null;
+  let queuedResync: Promise<void> | null = null;
+
+  /**
+   * Single-flight: `start()` and the SSE `onOpen` both resync, and they share the event buffer.
+   * A call during a resync coalesces into one more resync after it, so events published after
+   * the in-flight snapshot was taken are still picked up.
+   */
+  function resync(): Promise<void> {
+    if (!resyncing) {
+      resyncing = fetchAndReplay().finally(() => (resyncing = null));
+      return resyncing;
+    }
+    queuedResync ??= resyncing.then(() => {
+      queuedResync = null;
+      return resync();
+    });
+    return queuedResync;
+  }
+
+  async function fetchAndReplay(): Promise<void> {
+    buffer = [];
     try {
       const snap = await api.docState();
       const pending = buffer;

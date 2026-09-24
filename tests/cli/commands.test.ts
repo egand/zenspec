@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { GateResponse, InboxItem } from "../../src/core/api.js";
@@ -55,7 +56,10 @@ describe("zenspec gate", () => {
     expect(stub.callsTo("GET /api/gate")[0].query.get("repo")).toBe(repo);
     expect((await run(["gate", "--repo", "src/app.ts"], opts)).code).toBe(EXIT.blocked);
     expect((await run(["gate", "--repo", "docs/plans/other.md"], opts)).code).toBe(EXIT.ok);
-    expect(stub.callsTo("GET /api/gate")[1].query.get("repo")).toBe(path.join(repo, "src/app.ts"));
+    // The target is sent canonical (symlinks resolved, e.g. macOS /var -> /private/var).
+    expect(stub.callsTo("GET /api/gate")[1].query.get("repo")).toBe(
+      path.join(fs.realpathSync(repo), "src/app.ts"),
+    );
   });
 });
 

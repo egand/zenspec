@@ -16,7 +16,8 @@ import type {
   Thread,
   ThreadStatus,
 } from "../types.js";
-import { collectDefinitions, escapeHtml, MarkdownHtml } from "./markdown.js";
+import { escapeHtml } from "../html.js";
+import { collectDefinitions, MarkdownHtml } from "./markdown.js";
 import { EXPORT_CSS } from "./styles.js";
 
 export interface ExportInput {

@@ -7,7 +7,7 @@
  *   events.jsonl        append-only, one event per line
  *   revisions/<n>.md    revision snapshots
  *   draft.json          the reviewer's pending review (atomic writes)
- *   delivered.json      inbox cursor for implementation-time threads (§10)
+ *   delivered.json      the last review delivered to the agent, by `review` or the inbox
  *   attachments/<id>.<ext>
  */
 import fs from "node:fs";
@@ -15,6 +15,7 @@ import path from "node:path";
 import type { ZenEvent } from "../core/events.js";
 import type { AttachmentRef, DocumentRef, Draft } from "../core/types.js";
 import { writeFileAtomic } from "./home.js";
+import { probeImage } from "./images.js";
 
 const EXT: Record<AttachmentRef["mime"], string> = {
   "image/png": "png",
@@ -66,13 +67,23 @@ export class DocStorage {
     writeFileAtomic(this.file("doc.json"), JSON.stringify(ref, null, 2) + "\n");
   }
 
-  /** Every parseable line; a torn last line (crash mid-write) is skipped. */
+  /**
+   * Every parseable line. A torn last line (crash mid-write) is cut off the file, so the next
+   * append starts on a line of its own.
+   */
   readEvents(): ZenEvent[] {
+    const log = this.file("events.jsonl");
     let raw: string;
     try {
-      raw = fs.readFileSync(this.file("events.jsonl"), "utf8");
+      raw = fs.readFileSync(log, "utf8");
     } catch {
       return [];
+    }
+    const end = raw.lastIndexOf("\n") + 1;
+    if (end < raw.length) {
+      console.error(`zenspec: dropping a torn last line in ${log}`);
+      raw = raw.slice(0, end);
+      fs.truncateSync(log, Buffer.byteLength(raw));
     }
     const events: ZenEvent[] = [];
     for (const line of raw.split("\n")) {
@@ -80,7 +91,7 @@ export class DocStorage {
       try {
         events.push(JSON.parse(line) as ZenEvent);
       } catch {
-        // Skip a partially written line.
+        // Skip a corrupt line.
       }
     }
     return events;
@@ -129,6 +140,13 @@ export class DocStorage {
       writeFileAtomic(file, bytes);
     }
     return file;
+  }
+
+  /** The stored attachment `id`, described from its bytes, or null if there is none. */
+  readAttachmentRef(id: string): AttachmentRef | null {
+    const found = this.findAttachment(id);
+    const info = found && probeImage(fs.readFileSync(found.path));
+    return info && { id, mime: info.mime, width: info.width, height: info.height };
   }
 
   /** Absolute path and MIME type of a stored attachment, or null. */

@@ -28,6 +28,8 @@ describe("buildPayload", () => {
     expect(payload.threads).toEqual([
       {
         id: "t8",
+        replied: true,
+        status: "open",
         kind: "comment",
         at: "L5",
         quote: "cache invalidation via TTL only",
@@ -35,12 +37,26 @@ describe("buildPayload", () => {
       },
       {
         id: "t11",
+        replied: true,
+        status: "addressed",
         kind: "general",
         body: "See the attached flow.",
         images: [{ path: attachmentPath(image(2).id), width: 1320, height: 2248 }],
       },
     ]);
     expect(payload.next).toMatch(/-r <id>/);
+  });
+
+  it("asks for a response to replies even after the final sign-off", () => {
+    const input = { ...repliesReview(), review: review("approved", [], [], "", ["t8", "t11"]) };
+    const payload = buildPayload({ ...input, phase: "done" });
+    expect(payload.threads?.map((t) => [t.id, t.replied, t.status])).toEqual([
+      ["t8", true, "open"],
+      ["t11", true, "addressed"],
+    ]);
+    expect(payload.next).toBe(
+      "zenspec review docs/plans/x.md -r <id>:<edited|answered|declined>[:note]",
+    );
   });
 
   it("emits only the §8.3 fields per thread kind", () => {
@@ -78,8 +94,9 @@ describe("buildPayload", () => {
           term: "JSON",
           at: "L16",
           body: "What is this?",
-          save_to: "~/Developer/projects/second-brain/content/02_concepts/json.md",
-          template: "~/Developer/projects/second-brain/content/05_templates/concept_template.md",
+          save_to: "/Users/egand/Developer/projects/second-brain/content/02_concepts/json.md",
+          template:
+            "/Users/egand/Developer/projects/second-brain/content/05_templates/concept_template.md",
         },
         {
           id: "t4",

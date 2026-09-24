@@ -73,6 +73,38 @@ describe("doc store: events", () => {
   });
 });
 
+describe("doc store: concurrent resyncs", () => {
+  it("coalesces start() and the SSE open into sequential resyncs without a load error", async () => {
+    const api = fakeApi();
+    let active = 0;
+    let maxActive = 0;
+    const snapshot = api.docState.getMockImplementation()!;
+    api.docState.mockImplementation(async () => {
+      maxActive = Math.max(maxActive, ++active);
+      await wait(5);
+      active--;
+      return snapshot();
+    });
+    const { store } = makeStore(api);
+
+    const started = store.start();
+    FakeEventSource.last.open();
+    FakeEventSource.last.open();
+    const coalesced = store.resync();
+    // An event buffered during the first resync, then published for real before the next one.
+    const review = reviewEvent(1, 1);
+    FakeEventSource.last.emit(SSE_EVENTS.event, review);
+    api.state.events.push(review);
+    await Promise.all([started, coalesced]);
+
+    expect(maxActive).toBe(1);
+    expect(api.docState).toHaveBeenCalledTimes(2);
+    expect(store.loadError.value).toBeNull();
+    expect(store.loaded.value).toBe(true);
+    expect(store.lastReview.value?.n).toBe(1);
+  });
+});
+
 describe("doc store: draft", () => {
   it("saves reviewer actions to the daemon, debounced", async () => {
     const { store, api } = makeStore();

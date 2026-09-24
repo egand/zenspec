@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import { ROUTES } from "../../src/core/api.js";
 import { replay } from "../../src/core/reducer.js";
 import type { Draft } from "../../src/core/types.js";
-import { startTestDaemon, tempRepo } from "./helpers.js";
+import { startTestDaemon, tempRepo, type Doc } from "./helpers.js";
 
 const PLAN = [
   "# Plan",
@@ -149,15 +151,110 @@ describe("replies", () => {
     expect(state.threads.t1?.messages.map((m) => m.action)).toEqual(["comment", "reply"]);
   });
 
-  it("stages a reply through the thread route", async () => {
+  it("delivers a reply on an addressed or declined thread with its status", async () => {
+    const { doc } = await setup();
+    await doc.publish();
+    const general = (body: string) => ({ kind: "general" as const, body, attachments: [] });
+    await doc.submit({ revision: 1, opened: [general("Why?"), general("And this?")] });
+    await doc.publish({
+      responses: [
+        { thread: "t1", action: "answered", note: "Because." },
+        { thread: "t2", action: "declined", note: "Out of scope." },
+      ],
+    });
+
+    const review = await doc.submit({
+      revision: 1,
+      verdict: "comment",
+      replies: [
+        { thread: "t1", body: "Because of what?" },
+        { thread: "t2", body: "It is in scope." },
+      ],
+    });
+    expect(review.replied).toEqual(["t1", "t2"]);
+    expect(await doc.wait(1)).toEqual({
+      status: "delivered",
+      payload: {
+        verdict: "comment",
+        review: 2,
+        revision: 1,
+        threads: [
+          {
+            id: "t1",
+            replied: true,
+            status: "addressed",
+            kind: "general",
+            body: "Because of what?",
+          },
+          { id: "t2", replied: true, status: "declined", kind: "general", body: "It is in scope." },
+        ],
+        next: "zenspec review docs/plan.md -r <id>:<edited|answered|declined>[:note]",
+      },
+    });
+  });
+});
+
+describe("delivered cursor", () => {
+  it("delivers a review submitted between waits to the next wait, then waits for a newer one", async () => {
+    const { doc } = await setup();
+    await doc.publish();
+    expect((await doc.wait(undefined, 20)).status).toBe("pending");
+    await doc.submit({ revision: 1, opened: [{ kind: "general", body: "x", attachments: [] }] });
+
+    const late = await doc.wait(undefined, 20);
+    expect(late).toMatchObject({ status: "delivered", payload: { review: 1 } });
+    expect((await doc.wait(undefined, 20)).status).toBe("pending");
+  });
+
+  it("gives concurrent waiters the same review and advances the cursor once", async () => {
+    const { doc, daemon, home, root } = await setup();
+    await doc.publish();
+    const waiters = [doc.wait(), doc.wait()];
+    await vi.waitFor(async () => expect((await doc.state()).presence.waiting).toBe(2));
+    await doc.submit({ revision: 1, verdict: "comment" });
+    const [a, b] = await Promise.all(waiters);
+    expect(a).toMatchObject({ status: "delivered", payload: { review: 1 } });
+    expect(b).toEqual(a);
+
+    // The cursor survives a restart.
+    await daemon.stop();
+    const restarted = await startTestDaemon({ home });
+    const again = await restarted.open(`${root}/docs/plan.md`);
+    expect((await again.wait(undefined, 20)).status).toBe("pending");
+  });
+
+  it("does not advance the cursor when the waiter disconnects before delivery", async () => {
     const { doc, api } = await setup();
     await doc.publish();
-    await doc.submit({ revision: 1, opened: [{ kind: "general", body: "x", attachments: [] }] });
-    const { draft } = await api.ok("POST", doc.route(ROUTES.thread, { threadId: "t1" }), {
-      action: "reply",
-      body: "ping",
-    });
-    expect(draft).toMatchObject({ replies: [{ thread: "t1", body: "ping", attachments: [] }] });
+    const abort = new AbortController();
+    const gone = fetch(api.base + doc.route(ROUTES.nextReview), { signal: abort.signal }).catch(
+      () => undefined,
+    );
+    await vi.waitFor(async () => expect((await doc.state()).presence.waiting).toBe(1));
+    abort.abort();
+    await gone;
+    await vi.waitFor(async () => expect((await doc.state()).presence.waiting).toBe(0));
+    await doc.submit({ revision: 1, verdict: "comment" });
+    expect(await doc.wait(undefined, 20)).toMatchObject({ status: "delivered" });
+  });
+});
+
+describe("closed sessions", () => {
+  it("reopens when the agent publishes the unchanged file again", async () => {
+    const { doc, api } = await setup();
+    await doc.publish();
+    await api.ok("POST", doc.route(ROUTES.close), {});
+    expect(await doc.wait(undefined, 20)).toMatchObject({ status: "closed" });
+
+    expect(await doc.publish()).toMatchObject({ created: false });
+    const state = replay((await doc.state()).events);
+    expect(state.closed).toBeUndefined();
+    expect((await doc.state()).events.map((e) => e.type)).toEqual([
+      "revision_published",
+      "session_closed",
+      "session_reopened",
+    ]);
+    expect((await doc.wait(undefined, 20)).status).toBe("pending");
   });
 });
 
@@ -264,21 +361,25 @@ describe("draft", () => {
     expect(after?.threads[1]).toMatchObject({ anchor: { quote: "TTL only" } });
   });
 
-  it("stages resolve/reopen in the draft and clears the draft on submit", async () => {
+  it("clears the draft on submit", async () => {
     const { doc, api } = await setup();
     await doc.publish();
     await doc.submit({
       revision: 1,
       opened: [{ kind: "general", body: "x", attachments: [] }],
     });
-    const staged = await api.ok("POST", doc.route(ROUTES.thread, { threadId: "t1" }), {
-      action: "resolve",
+    const staged: Draft = {
+      revision: 1,
+      summary: "",
+      threads: [],
+      reopen: [],
+      replies: [],
+      resolve: ["t1"],
+      updatedAt: "",
+    };
+    expect((await api.ok("PUT", doc.route(ROUTES.draft), staged)).draft).toMatchObject({
+      resolve: ["t1"],
     });
-    expect(staged.draft).toMatchObject({ resolve: ["t1"], reopen: [] });
-    const missing = await api.call("POST", doc.route(ROUTES.thread, { threadId: "t9" }), {
-      action: "resolve",
-    });
-    expect(missing.status).toBe(404);
 
     await doc.submit({ revision: 1, verdict: "approved", resolved: ["t1"] });
     const { draft, events } = await doc.state();
@@ -318,13 +419,7 @@ describe("storage", () => {
 
   it("stores valid images content-addressed and rejects other bytes", async () => {
     const { doc, api } = await setup();
-    // Signature plus an IHDR chunk header: enough for the daemon to read 2x3.
-    const png = Buffer.alloc(33);
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png);
-    png.writeUInt32BE(13, 8);
-    png.write("IHDR", 12, "latin1");
-    png.writeUInt32BE(2, 16);
-    png.writeUInt32BE(3, 20);
+    const png = pngHeader(2, 3);
     const upload = (body: Buffer, type: string) =>
       fetch(api.base + doc.route(ROUTES.attachments), {
         method: "POST",
@@ -343,4 +438,91 @@ describe("storage", () => {
     expect(Buffer.from(await served.arrayBuffer())).toEqual(png);
     expect((await upload(Buffer.from("not an image"), "image/png")).status).toBe(400);
   });
+
+  it("rejects images over 1568 px on the long edge", async () => {
+    const { doc, api } = await setup();
+    const reply = await fetch(api.base + doc.route(ROUTES.attachments), {
+      method: "POST",
+      headers: { "Content-Type": "image/png" },
+      body: new Uint8Array(pngHeader(1569, 10)),
+    });
+    expect(reply.status).toBe(413);
+    expect((await reply.json()).error.message).toMatch(/1568/);
+  });
+
+  it("checks submitted attachments against the store and takes their size from the file", async () => {
+    const { doc, api } = await setup();
+    await doc.publish();
+    const uploaded = await fetch(api.base + doc.route(ROUTES.attachments), {
+      method: "POST",
+      body: new Uint8Array(pngHeader(4, 5)),
+    }).then((r) => r.json());
+    const general = (attachments: unknown[]) => ({
+      kind: "general",
+      body: "see image",
+      attachments,
+    });
+    const submit = (attachments: unknown[]) =>
+      api.call("POST", doc.route(ROUTES.reviews), {
+        revision: 1,
+        verdict: "comment",
+        summary: "",
+        opened: [general(attachments)],
+        reopened: [],
+        resolved: [],
+      });
+
+    const bogus = { id: "../../etc/passwd", mime: "image/png", width: 1, height: 1 };
+    expect((await submit([bogus])).status).toBe(400);
+    const missing = { id: "0123456789ab", mime: "image/png", width: 1, height: 1 };
+    expect((await submit([missing])).status).toBe(400);
+
+    const lying = { ...uploaded, width: 9999, height: 1 };
+    expect((await submit([lying])).status).toBe(200);
+    const state = replay((await doc.state()).events);
+    expect(state.threads.t1?.messages[0]?.attachments).toEqual([uploaded]);
+  });
+
+  it("serves HTML revisions sandboxed and never sniffed", async () => {
+    const root = tempRepo({ "mock.html": "<h1>Hi</h1><script>1</script>" });
+    const t = await startTestDaemon();
+    const doc = await t.open(`${root}/mock.html`);
+    await doc.publish();
+    const res = await fetch(t.api.base + doc.route(ROUTES.revision, { n: 1 }));
+    expect(res.headers.get("content-security-policy")).toBe("sandbox allow-scripts");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await res.text()).toBe("<h1>Hi</h1><script>1</script>");
+  });
+
+  it("truncates a torn last line of the log so later appends stay parseable", async () => {
+    const { doc, home, daemon, root } = await setup();
+    await doc.publish();
+    await daemon.stop();
+    const log = path.join(docDir(home, doc), "events.jsonl");
+    fs.appendFileSync(log, '{"schemaVersion":1,"type":"review_sub');
+
+    const restarted = await startTestDaemon({ home });
+    const again = await restarted.open(`${root}/docs/plan.md`);
+    await again.submit({ revision: 1, verdict: "comment" });
+    const lines = fs.readFileSync(log, "utf8").trimEnd().split("\n");
+    expect(lines.map((l) => (JSON.parse(l) as { type: string }).type)).toEqual([
+      "revision_published",
+      "review_submitted",
+    ]);
+  });
 });
+
+/** Signature plus an IHDR chunk header: enough for the daemon to read the size. */
+function pngHeader(width: number, height: number): Buffer {
+  const png = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png);
+  png.writeUInt32BE(13, 8);
+  png.write("IHDR", 12, "latin1");
+  png.writeUInt32BE(width, 16);
+  png.writeUInt32BE(height, 20);
+  return png;
+}
+
+function docDir(home: string, doc: Doc): string {
+  return path.join(home, "repos", doc.repoId, "docs", doc.docId);
+}

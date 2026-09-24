@@ -13,13 +13,13 @@ import type {
   PublishResponse,
   SseMessage,
   SubmitReviewRequest,
-  ThreadActionRequest,
 } from "../core/api.js";
 import { SSE_EVENTS } from "../core/api.js";
 import { reanchorDraft, reanchorThreads, type Snapshot } from "../core/anchor.js";
 import { diffHunks } from "../core/diff.js";
 import { EVENT_SCHEMA_VERSION, type UnstampedEvent, type ZenEvent } from "../core/events.js";
 import { classifyChange, parseDocument } from "../core/parse.js";
+import { analyze } from "../core/parse/document.js";
 import {
   latestReview,
   latestRevision,
@@ -29,11 +29,13 @@ import {
   threadList,
 } from "../core/reducer.js";
 import type {
+  AttachmentRef,
   Author,
   DocState,
   Document,
   DocumentRef,
   Draft,
+  Phase,
   Response,
   Review,
   Revision,
@@ -79,6 +81,8 @@ export class DocSession {
   private draftValue: Draft | null;
   /** Last content seen on disk: the baseline for living-plan change classification (§10). */
   private disk: string | null;
+  /** Number of the last review delivered to the agent (persisted in `delivered.json`). */
+  private deliveredReview: number;
   private readonly listeners = new Set<Listener>();
   private readonly waiters = new Set<Waiter>();
   /** Last agent activity seen by this daemon process (see `Presence`). */
@@ -96,7 +100,9 @@ export class DocSession {
     // Drafts saved before replies existed lack the field.
     this.draftValue = draft && { ...draft, replies: draft.replies ?? [] };
     this.agentSeenAt = this.events.findLast((e) => isAgent(e.author))?.ts;
+    this.deliveredReview = storage.readDelivered();
     this.disk = this.readDiskOrNull();
+    this.catchUpOffline();
   }
 
   get state(): DocState {
@@ -114,6 +120,22 @@ export class DocSession {
   /** Waiters plus SSE listeners. */
   get activity(): number {
     return this.waiters.size + this.listeners.size;
+  }
+
+  get delivered(): number {
+    return this.deliveredReview;
+  }
+
+  /** Records that review `n` reached the agent; the cursor never moves back. */
+  markDelivered(n: number): void {
+    if (n <= this.deliveredReview) return;
+    this.deliveredReview = n;
+    this.storage.writeDelivered(n);
+  }
+
+  /** Approved or implementing: disk edits are tracked as steps and drift (§10). */
+  get living(): boolean {
+    return isLiving(this.current.phase);
   }
 
   get viewed(): boolean {
@@ -226,6 +248,9 @@ export class DocSession {
       created = true;
     }
 
+    // Running `review` again reopens a closed session; a new revision has already done so.
+    if (this.current.closed) this.append({ type: "session_reopened", author });
+
     const revision = latestRevision(this.current) as Revision;
     if (req.responses?.length) {
       this.append({
@@ -261,7 +286,19 @@ export class DocSession {
     }
 
     const first = this.current.threadOrder.length + 1;
-    const opened = req.opened.map((thread, i) => ({ ...thread, id: `t${first + i}` }));
+    const opened = req.opened.map((thread, i) => ({
+      ...thread,
+      id: `t${first + i}`,
+      attachments: this.storedAttachments(thread.attachments),
+    }));
+    const reopened = req.reopened.map((r) => ({
+      ...r,
+      attachments: this.storedAttachments(r.attachments),
+    }));
+    const replies = req.replies.map((r) => ({
+      ...r,
+      attachments: this.storedAttachments(r.attachments ?? []),
+    }));
     this.append({
       type: "review_submitted",
       author,
@@ -270,14 +307,26 @@ export class DocSession {
       verdict: req.verdict,
       summary: req.summary,
       opened,
-      reopened: req.reopened,
-      ...(req.replies.length > 0 && { replies: req.replies }),
+      reopened,
+      ...(replies.length > 0 && { replies }),
       resolved: req.resolved,
     });
     this.setDraft(null);
     this.answerFromKnowledgeBase(opened.map((t) => t.id));
     this.settleWaiters();
     return latestReview(this.current) as Review;
+  }
+
+  /**
+   * The stored attachments `refs` point to, described from the stored bytes (the client's
+   * mime and size are not trusted). 400 for an id that is malformed or not in the store.
+   */
+  private storedAttachments(refs: AttachmentRef[]): AttachmentRef[] {
+    return refs.map(({ id }) => {
+      const stored = this.storage.readAttachmentRef(id);
+      if (!stored) throw badRequest(`Unknown attachment: ${id}`);
+      return stored;
+    });
   }
 
   /** §11: explain threads whose term already has a note are answered by the daemon. */
@@ -306,39 +355,11 @@ export class DocSession {
     this.broadcast({ event: SSE_EVENTS.draft, data: { draft: this.draftValue } });
   }
 
-  /** Stages resolve/reopen/reply in the draft; only `review_submitted` changes threads. */
-  stageThreadAction(id: ThreadId, action: ThreadActionRequest): Draft {
-    if (!this.current.threads[id]) throw notFound(`Unknown thread: ${id}`);
-    const draft = this.draftValue ?? this.emptyDraft();
-    const reopen = draft.reopen.filter((r) => r.thread !== id);
-    const replies = draft.replies.filter((r) => r.thread !== id);
-    const resolve = draft.resolve.filter((t) => t !== id);
-    if (action.action === "resolve") resolve.push(id);
-    if (action.action === "reopen" || action.action === "reply") {
-      const staged = { thread: id, body: action.body, attachments: action.attachments ?? [] };
-      (action.action === "reopen" ? reopen : replies).push(staged);
-    }
-    this.setDraft({ ...draft, reopen, replies, resolve });
-    return this.draftValue as Draft;
-  }
-
   /** §10: accepts every pending drift. Does not change the phase or wake waiters. */
   acceptDrift(author: Author = "reviewer"): void {
     if (this.current.closed) throw conflict("The review session is closed");
     if (!pendingDrift(this.current).length) throw conflict("There is no plan drift to accept");
     this.append({ type: "drift_accepted", author });
-  }
-
-  private emptyDraft(): Draft {
-    return {
-      revision: latestRevision(this.current)?.n ?? 0,
-      summary: "",
-      threads: [],
-      reopen: [],
-      replies: [],
-      resolve: [],
-      updatedAt: new Date().toISOString(),
-    };
   }
 
   close(req: CloseRequest): void {
@@ -352,8 +373,16 @@ export class DocSession {
   // Waiting (§8.1): broadcast, nothing is drained
   // -------------------------------------------------------------------------
 
-  /** Resolves with the first review numbered above `after`, the session closing, or a timeout. */
-  wait(after: number, timeoutMs?: number, signal?: AbortSignal): Promise<WaitOutcome> {
+  /**
+   * Resolves with the first review numbered above `after` (default: the last review delivered
+   * to the agent), the session closing, or a timeout. Every waiter registered before a review
+   * arrives receives it; the caller advances the cursor with `markDelivered` once it is sent.
+   */
+  wait(
+    after = this.deliveredReview,
+    timeoutMs?: number,
+    signal?: AbortSignal,
+  ): Promise<WaitOutcome> {
     const ready = this.outcomeFor(after);
     if (ready) return Promise.resolve(ready);
     return new Promise((resolve) => {
@@ -411,24 +440,56 @@ export class DocSession {
       event: SSE_EVENTS.content,
       data: { content, contentHash: hashContent(content) },
     });
-    const { phase } = this.current;
-    if (before === null || this.ref.kind !== "markdown") return;
-    if (phase !== "approved" && phase !== "implementing") return;
+    if (before === null || this.ref.kind !== "markdown" || !this.living) return;
+    this.recordChange(before, content, true);
+  }
 
-    const change = classifyChange(before, content);
+  /**
+   * §10: classifies edits made while no daemon watched the plan, against the latest revision
+   * with the recorded step states applied. Drift already recorded for that revision is not
+   * recorded again (the log cannot tell whether the file drifted further).
+   */
+  private catchUpOffline(): void {
+    const baseline = this.livingBaseline();
+    if (baseline === null || this.disk === null) return;
+    const revision = latestRevision(this.current)?.n;
+    const drifted = this.current.drift.some((d) => d.revision === revision);
+    this.recordChange(baseline, this.disk, !drifted);
+  }
+
+  /** The latest revision of a living Markdown plan, with its checkboxes set as recorded. */
+  private livingBaseline(): string | null {
+    const revision = latestRevision(this.current);
+    if (this.ref.kind !== "markdown" || !this.living || !revision) return null;
+    let text = this.storage.readRevision(revision.n);
+    if (text === null) return null;
+    for (const [step, offset] of analyze(text).checkboxOffsets) {
+      const state = this.current.steps[step];
+      if (state)
+        text = `${text.slice(0, offset)}${state.checked ? "x" : " "}${text.slice(offset + 1)}`;
+    }
+    return text;
+  }
+
+  private recordChange(before: string, after: string, drift: boolean): void {
+    const change = classifyChange(before, after);
     if (change.kind === "checkbox-only") {
       for (const { step, checked } of change.steps) {
         this.append({ type: "step_checked", author: "agent", step, checked });
       }
-    } else if (change.kind === "content") {
+    } else if (change.kind === "content" && drift) {
       this.append({
         type: "plan_drifted",
         author: "agent",
         revision: latestRevision(this.current)?.n ?? 0,
-        diffSummary: diffSummary(before, content),
+        diffSummary: diffSummary(before, after),
       });
     }
   }
+}
+
+export function isLiving(phase: Phase): boolean {
+  return phase === "approved" || phase === "implementing";
 }
 
 /** Reviewer and daemon events are not agent activity; any other author is an agent. */

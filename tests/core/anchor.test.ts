@@ -133,7 +133,7 @@ describe("markdown re-anchoring strategies", () => {
     },
     {
       name: "5: whole block when the quote is gone but the block survives",
-      text: base.replace("We keep the cache warm with a nightly job.", "Nothing is precomputed."),
+      text: base.replace("keep the cache warm", "precompute nothing"),
       strategy: 5,
       block: "storage/p1",
     },
@@ -176,6 +176,62 @@ describe("markdown re-anchoring strategies", () => {
 
   it("rejects selections outside every block", () => {
     expect(() => createMarkdownAnchor(doc, { start: 11, end: 12 })).toThrow(/outside every block/);
+  });
+});
+
+describe("deleted blocks", () => {
+  const rev1 = snapshot(
+    [
+      "## Caching",
+      "",
+      "Sessions are cached in Redis.",
+      "",
+      "Eviction uses an LRU policy with a 10k entry cap.",
+      "",
+      "Metrics are exported to Prometheus every minute.",
+    ].join("\n"),
+  );
+  const rev2 = snapshot(
+    rev1.text.replace("Eviction uses an LRU policy with a 10k entry cap.\n\n", ""),
+    2,
+  );
+  const onDeleted = anchorOn(rev1, "LRU policy");
+
+  it("outdates a thread whose paragraph was deleted instead of moving it to the next one", () => {
+    expect(onDeleted.block).toBe("caching/p2");
+    expect(rev2.blocks.map((b) => b.id)).toContain("caching/p2");
+    expect(reanchor(onDeleted, rev2)).toEqual({ revision: 2, strategy: 6 });
+  });
+
+  it("outdates a whole-block anchor whose block was deleted", () => {
+    const anchor = createMarkdownAnchor(rev1, { block: "caching/p2" });
+    expect(reanchor(anchor, rev2)).toEqual({ revision: 2, strategy: 6 });
+  });
+
+  it("orphans draft items and outdates threads on the deleted paragraph", () => {
+    const [item] = reanchorDraft(
+      [{ kind: "comment", anchor: onDeleted, draftId: "d", body: "", attachments: [] }],
+      rev2,
+    );
+    expect(item).toMatchObject({ orphaned: true, placement: { strategy: 6 } });
+    const thread: Thread = {
+      kind: "comment",
+      anchor: onDeleted,
+      id: "t1",
+      status: "open",
+      messages: [],
+      openedIn: 1,
+    };
+    expect(reanchorThreads([thread], rev2)).toEqual({ t1: { revision: 2, strategy: 6 } });
+  });
+
+  it("keeps a thread on its paragraph when a later paragraph is deleted", () => {
+    const rev3 = snapshot(
+      rev1.text.replace("\n\nMetrics are exported to Prometheus every minute.", ""),
+      2,
+    );
+    const rewritten = snapshot(rev3.text.replace("LRU policy", "clock sweep"), 3);
+    expect(reanchor(onDeleted, rewritten)).toMatchObject({ strategy: 5, block: "caching/p2" });
   });
 });
 

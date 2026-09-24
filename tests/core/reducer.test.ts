@@ -15,7 +15,6 @@ import {
   pendingDrift,
   reduce,
   replay,
-  threadsSince,
   type ThreadTrigger,
 } from "../../src/core/reducer.js";
 import type {
@@ -323,6 +322,15 @@ describe("invalid and unknown events", () => {
       "addressed",
     );
   });
+
+  it("reopens a closed session on session_reopened and ignores it otherwise", () => {
+    const state = reduce(start, closed());
+    const reopened = reduce(state, { ...base("agent"), type: "session_reopened" });
+    expect(reopened.closed).toBeUndefined();
+    expect(reopened.revisions).toEqual(state.revisions);
+    expect(reduce(reopened, review(2, 1, "comment")).reviews).toHaveLength(2);
+    expect(reduce(start, { ...base("agent"), type: "session_reopened" })).toBe(start);
+  });
 });
 
 describe("replay", () => {
@@ -362,21 +370,6 @@ describe("selectors", () => {
 
   it("lists open threads in creation order", () => {
     expect(openThreads(state).map((t) => t.id)).toEqual(["t1", "t3", "t4"]);
-  });
-
-  it("returns only threads new or reopened since a revision", () => {
-    const since = (rev: number) =>
-      threadsSince(state, rev).map(({ thread, reopened }) => [thread.id, reopened]);
-    expect(since(2)).toEqual([
-      ["t4", false],
-      ["t1", true],
-    ]);
-    expect(since(1)).toEqual([
-      ["t1", false],
-      ["t3", false],
-      ["t4", false],
-    ]);
-    expect(since(3)).toEqual([]);
   });
 
   it("returns the latest revision and review", () => {
@@ -448,7 +441,6 @@ describe("replies", () => {
       review: 2,
     });
     expect(latestReview(state)?.replied).toEqual(["t1"]);
-    expect(threadsSince(state, 1).map((e) => e.thread.id)).toEqual(["t1"]);
   });
 
   it("keeps addressed threads addressed and skips resolved or unknown threads", () => {
@@ -542,7 +534,6 @@ describe("plan §7.1 worked example", () => {
       r2,
     );
     expect(r3.threads.t8).toMatchObject({ status: "addressed", placement: rev3 });
-    expect(threadsSince(r3, 3)).toEqual([]);
 
     const done = reduce(r3, review(2, 3, "approved", { resolved: ["t8"] }));
     expect(done.threads.t8.status).toBe("resolved");
