@@ -10,6 +10,7 @@ export default defineConfig({
   esbuild: { jsx: "automatic", jsxImportSource: "preact" },
   test: {
     include: ["tests/**/*.test.{ts,tsx}"],
+    globalSetup: ["tests/global-setup.ts"],
     exclude: ["legacy/**", "node_modules/**", "dist/**"],
   },
 });

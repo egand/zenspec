@@ -8,8 +8,10 @@ import type { AddressInfo } from "node:net";
 import { PAGES } from "../core/api.js";
 import { loadConfig } from "./config.js";
 import {
+  acquireLock,
   clearDaemonInfo,
-  liveDaemon,
+  readDaemonInfo,
+  releaseLock,
   removeLegacyState,
   resolveHome,
   writeDaemonInfo,
@@ -48,9 +50,10 @@ export interface RunningDaemon {
 export class DaemonAlreadyRunningError extends Error {
   constructor(
     readonly pid: number,
-    readonly port: number,
+    /** Unknown while the other daemon is still starting. */
+    readonly port?: number,
   ) {
-    super(`A zenspec daemon is already running (pid ${pid}, port ${port})`);
+    super(`A zenspec daemon is already running (pid ${pid}${port ? `, port ${port}` : ""})`);
   }
 }
 
@@ -65,10 +68,22 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<RunningD
   const version = options.version ?? buildVersion();
   fs.mkdirSync(home, { recursive: true });
 
-  const running = await liveDaemon(home);
-  if (running && running.version === version) {
-    throw new DaemonAlreadyRunningError(running.pid, running.port);
+  const holder = await acquireLock(home);
+  if (holder !== null) throw new DaemonAlreadyRunningError(holder, readDaemonInfo(home)?.port);
+  try {
+    return await launch(home, version, options);
+  } catch (err) {
+    releaseLock(home);
+    throw err;
   }
+}
+
+/** Starts the daemon; the caller holds `daemon.lock`. */
+async function launch(
+  home: string,
+  version: string,
+  options: DaemonOptions,
+): Promise<RunningDaemon> {
   removeLegacyState(home);
 
   const config = loadConfig(home);
@@ -90,6 +105,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<RunningD
     (stopping ??= (async () => {
       clearTimeout(idleTimer);
       clearDaemonInfo(home, process.pid);
+      releaseLock(home);
       const closed = new Promise<void>((resolve) => server.close(() => resolve()));
       server.closeAllConnections();
       await Promise.all([closed, registry.close(), kb.stop()]);

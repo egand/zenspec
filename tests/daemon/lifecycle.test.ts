@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
@@ -29,6 +29,16 @@ it("refuses to start next to a live daemon of the same version", async () => {
   await expect(startDaemon({ home, port: 0, version: "1.0.0" })).rejects.toBeInstanceOf(
     DaemonAlreadyRunningError,
   );
+});
+
+it("takes over the lock of a daemon that died without releasing it", async () => {
+  const home = tempDir("home");
+  const deadPid = spawnSync(process.execPath, ["-e", ""]).pid;
+  fs.writeFileSync(path.join(home, "daemon.lock"), String(deadPid));
+  const { daemon } = await startTestDaemon({ home });
+  expect(fs.readFileSync(path.join(home, "daemon.lock"), "utf8")).toBe(String(process.pid));
+  await daemon.stop();
+  expect(fs.existsSync(path.join(home, "daemon.lock"))).toBe(false);
 });
 
 it("rejects cross-origin requests", async () => {

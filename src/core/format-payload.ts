@@ -13,6 +13,7 @@ import type {
 import type {
   Anchor,
   AttachmentId,
+  Author,
   AttachmentRef,
   Choice,
   Message,
@@ -72,6 +73,11 @@ export function buildPendingPayload(docPath: string, wait?: string): ReviewPaylo
     verdict: "pending",
     next: `${reviewCommand(docPath)}${wait ? ` --wait ${wait}` : ""}`,
   };
+}
+
+/** Returned when the session is closed instead of reviewed: nothing is left to do. */
+export function buildClosedPayload(by: Author, reason?: string): ReviewPayload {
+  return { verdict: "closed", by, ...(reason && { reason }), next: "none" };
 }
 
 // ---------------------------------------------------------------------------
@@ -223,9 +229,11 @@ function shellQuote(arg: string): string {
  * `- <path> # <width>x<height>`.
  */
 export function formatPayloadYaml(payload: ReviewPayload): string {
-  const { verdict, review, revision, summary, threads, next } = payload;
+  const { verdict, by, reason, review, revision, summary, threads, next } = payload;
   const plain = compact({
     verdict,
+    by,
+    reason: reason || undefined,
     review,
     revision,
     summary: summary || undefined,

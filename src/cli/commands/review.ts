@@ -2,10 +2,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { parse as parseYaml, stringify } from "yaml";
+import { parse as parseYaml } from "yaml";
 import { ROUTES, type PublishResponse, type WaitReviewResponse } from "../../core/api.js";
 import type { ZenspecConfig } from "../../core/config.js";
-import { buildPendingPayload, formatPayloadYaml } from "../../core/format-payload.js";
+import {
+  buildClosedPayload,
+  buildPendingPayload,
+  formatPayloadYaml,
+} from "../../core/format-payload.js";
 import type { Response } from "../../core/types.js";
 import {
   parse,
@@ -110,6 +114,6 @@ function render(result: WaitReviewResponse, file: string, wait: string | undefin
       // Built here because only the CLI knows the path and `--wait` exactly as the agent typed them.
       return formatPayloadYaml(buildPendingPayload(file, wait));
     case "closed":
-      return stringify({ verdict: "closed", by: result.by, reason: result.reason, next: "none" });
+      return formatPayloadYaml(buildClosedPayload(result.by, result.reason));
   }
 }

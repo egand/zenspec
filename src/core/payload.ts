@@ -9,10 +9,13 @@
  * - Line numbers (`at`) refer to the file on disk at delivery time.
  * - Never includes the document, history, or resolved threads.
  */
-import type { QuestionId, ThreadId, Verdict } from "./types.js";
+import type { Author, QuestionId, ThreadId, Verdict } from "./types.js";
 
-/** `pending` is returned when `--wait` expires before a review arrives (§8.4). */
-export type PayloadVerdict = Verdict | "pending";
+/**
+ * `pending` is returned when `--wait` expires before a review arrives (§8.4); `closed` when
+ * the review session is closed instead of reviewed.
+ */
+export type PayloadVerdict = Verdict | "pending" | "closed";
 
 /** `L42` or `L42-44`. */
 export type LineRef = `L${number}` | `L${number}-${number}`;
@@ -78,7 +81,11 @@ export type PayloadThread =
 
 export interface ReviewPayload {
   verdict: PayloadVerdict;
-  /** Absent when `verdict` is `pending`. */
+  /** Who closed the session; present only when `verdict` is `closed`. */
+  by?: Author;
+  /** Why the session was closed; present only when `verdict` is `closed` and a reason was given. */
+  reason?: string;
+  /** Absent when `verdict` is `pending` or `closed`. */
   review?: number;
   revision?: number;
   summary?: string;

@@ -75,6 +75,52 @@ export async function liveDaemon(home: string): Promise<DaemonInfo | null> {
   }
 }
 
+const lockFile = (home: string) => path.join(home, "daemon.lock");
+/** A lock this young belongs to a daemon that may still be starting (no `daemon.json` yet). */
+const LOCK_GRACE_MS = 10_000;
+
+/**
+ * Takes `daemon.lock`, so only one daemon runs per home even when several CLIs spawn one at
+ * once. Returns the holder's pid when another daemon holds it (alive, and still starting or
+ * answering `/api/health`); a stale lock is taken over.
+ */
+export async function acquireLock(home: string): Promise<number | null> {
+  const lock = lockFile(home);
+  const tmp = `${lock}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, String(process.pid));
+  try {
+    for (;;) {
+      try {
+        fs.linkSync(tmp, lock); // atomic: fails if the lock exists, never exposes a partial file
+        return null;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      }
+      const holder = readLock(lock);
+      if (holder && pidAlive(holder.pid)) {
+        const fresh = Date.now() - holder.mtimeMs < LOCK_GRACE_MS;
+        if (fresh || (await liveDaemon(home))?.pid === holder.pid) return holder.pid;
+      }
+      fs.rmSync(lock, { force: true });
+    }
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+}
+
+/** Releases `daemon.lock` if this process holds it. */
+export function releaseLock(home: string): void {
+  if (readLock(lockFile(home))?.pid === process.pid) fs.rmSync(lockFile(home), { force: true });
+}
+
+function readLock(lock: string): { pid: number; mtimeMs: number } | null {
+  try {
+    return { pid: Number(fs.readFileSync(lock, "utf8")), mtimeMs: fs.statSync(lock).mtimeMs };
+  } catch {
+    return null;
+  }
+}
+
 /** Write-to-temp then rename, so readers never see a partial file. */
 export function writeFileAtomic(file: string, data: string | Buffer): void {
   const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;

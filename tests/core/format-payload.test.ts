@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import {
+  buildClosedPayload,
   buildPayload,
   buildPendingPayload,
   formatPayloadYaml,
@@ -155,6 +156,22 @@ describe("buildPendingPayload", () => {
   });
 });
 
+describe("buildClosedPayload", () => {
+  it("says who closed the session and that nothing is left to do", () => {
+    expect(buildClosedPayload("reviewer", "superseded")).toEqual({
+      verdict: "closed",
+      by: "reviewer",
+      reason: "superseded",
+      next: "none",
+    });
+    expect(buildClosedPayload("agent", "")).toEqual({
+      verdict: "closed",
+      by: "agent",
+      next: "none",
+    });
+  });
+});
+
 describe("truncateQuote", () => {
   it("flattens whitespace and caps at 120 code points", () => {
     expect(truncateQuote("  a\n  b  ")).toBe("a b");
@@ -204,6 +221,12 @@ describe("formatPayloadYaml", () => {
   it("formats a pending payload as two lines", () => {
     expect(formatPayloadYaml(buildPendingPayload("docs/plans/x.md"))).toBe(
       "verdict: pending\nnext: zenspec review docs/plans/x.md\n",
+    );
+  });
+
+  it("formats a closed payload with who closed it first", () => {
+    expect(formatPayloadYaml(buildClosedPayload("reviewer", "done"))).toBe(
+      "verdict: closed\nby: reviewer\nreason: done\nnext: none\n",
     );
   });
 });

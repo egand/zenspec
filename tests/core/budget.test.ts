@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  buildClosedPayload,
   buildPayload,
   buildPendingPayload,
   formatPayloadYaml,
@@ -48,7 +49,12 @@ function withoutVariableText(payload: ReviewPayload): ReviewPayload {
     if (t.images) out.images = t.images.map((i) => ({ ...i, path: "x" }));
     return out as unknown as PayloadThread;
   };
-  return { ...payload, summary: h(payload.summary), threads: payload.threads?.map(strip) };
+  return {
+    ...payload,
+    reason: h(payload.reason),
+    summary: h(payload.summary),
+    threads: payload.threads?.map(strip),
+  };
 }
 
 const overhead = (payload: ReviewPayload) =>
@@ -59,6 +65,7 @@ const fixtures: [string, ReviewPayload][] = [
   ["large (30 threads)", buildPayload(largeReview())],
   ["approved with open threads", buildPayload(approvedWithOpenThreads())],
   ["pending", buildPendingPayload(DOC_PATH, "10m")],
+  ["closed", buildClosedPayload("reviewer", "superseded by another plan")],
 ];
 
 describe("payload budget (§3)", () => {
@@ -122,6 +129,4 @@ describe("payload budget (§3)", () => {
     // t4 was reopened: only the reopen message is delivered, not its earlier exchange.
     expect(yaml).not.toMatch(/Who owns the migration\?|platform team/);
   });
-
-  it.todo("exactly one CLI invocation per review round in the scripted-agent test");
 });
