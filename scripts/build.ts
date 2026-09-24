@@ -3,53 +3,55 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dirname, "..");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(ROOT, "dist");
+const CLIENT_SRC = path.join(ROOT, "src/client");
 const CLIENT_DIST = path.join(DIST, "client");
 
-async function build() {
-  console.log("🔨 Building ZenSpec...");
+const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as {
+  version: string;
+};
+const define = { __ZENSPEC_VERSION__: JSON.stringify(pkg.version) };
 
-  // Ensure dist directories exist
-  fs.mkdirSync(DIST, { recursive: true });
+async function build() {
+  fs.rmSync(DIST, { recursive: true, force: true });
   fs.mkdirSync(CLIENT_DIST, { recursive: true });
 
-  // 1. Build CLI & Server bundle
-  console.log("  → Bundling CLI (dist/cli.mjs)...");
+  // CLI and daemon: one Node bundle; runtime dependencies stay in node_modules.
   await esbuild.build({
-    entryPoints: [path.join(ROOT, "src/cli.ts")],
+    entryPoints: [path.join(ROOT, "src/cli/index.ts")],
     outfile: path.join(DIST, "cli.mjs"),
     bundle: true,
     platform: "node",
     format: "esm",
     target: "node24",
-    banner: {
-      js: `#!/usr/bin/env node\nimport { createRequire } from 'module';\nconst require = createRequire(import.meta.url);`,
-    },
-    external: ["chokidar", "open", "picocolors", "cross-spawn"],
+    packages: "external",
+    banner: { js: "#!/usr/bin/env node" },
+    define,
   });
-
-  // Make executable
   fs.chmodSync(path.join(DIST, "cli.mjs"), 0o755);
 
-  // 2. Build Client app.ts
-  console.log("  → Bundling Client (dist/client/app.js)...");
+  // Browser client: Preact with the automatic JSX runtime.
   await esbuild.build({
-    entryPoints: [path.join(ROOT, "src/client/app.ts")],
-    outfile: path.join(CLIENT_DIST, "app.js"),
+    entryPoints: [path.join(CLIENT_SRC, "main.tsx")],
+    outdir: CLIENT_DIST,
     bundle: true,
     platform: "browser",
     format: "esm",
     target: "es2022",
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    loader: { ".woff2": "file", ".woff": "file", ".ttf": "file" },
+    define,
   });
 
-  // 3. Copy static client assets
-  console.log("  → Copying HTML & CSS assets...");
-  fs.copyFileSync(path.join(ROOT, "src/client/index.html"), path.join(CLIENT_DIST, "index.html"));
-  fs.copyFileSync(path.join(ROOT, "src/client/styles.css"), path.join(CLIENT_DIST, "styles.css"));
+  for (const file of fs.readdirSync(CLIENT_SRC)) {
+    if (file.endsWith(".html") || file.endsWith(".css")) {
+      fs.copyFileSync(path.join(CLIENT_SRC, file), path.join(CLIENT_DIST, file));
+    }
+  }
 
-  console.log("✨ ZenSpec build complete!");
+  console.log("Built dist/cli.mjs and dist/client/");
 }
 
 build().catch((err) => {
