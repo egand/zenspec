@@ -42,10 +42,10 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "chokidar": "^4.0.3",
-    "katex": "^0.16.21",
+    "chokidar": "^5.0.0",
+    "katex": "^0.18.7",
     "mdast-util-to-string": "^4.0.0",
-    "open": "^10.1.0",
+    "open": "^11.0.4",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
@@ -54,22 +54,22 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
-    "@eslint/js": "^9.21.0",
+    "@eslint/js": "^10.0.1",
     "@preact/signals": "^2.11.2",
     "@types/katex": "^0.16.7",
     "@types/mdast": "^4.0.4",
-    "@types/node": "^24.0.0",
-    "esbuild": "^0.25.0",
-    "eslint": "^9.21.0",
+    "@types/node": "^26.6.2",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.0.1",
     "happy-dom": "^20.14.5",
-    "mermaid": "^11.4.1",
+    "mermaid": "^12.0.0",
     "preact": "^10.29.8",
-    "prettier": "^3.5.2",
+    "prettier": "^3.9.8",
     "puppeteer": "^25.12.0",
-    "tsx": "^4.19.3",
-    "typescript": "^5.7.3",
-    "typescript-eslint": "^8.25.0",
-    "vitest": "^3.0.7"
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.1"
   }
 }
